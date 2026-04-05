@@ -14,6 +14,13 @@ local NAME_ANCHORS = {
     "BOTTOMRIGHT",
 }
 
+local GROW_OPTIONS = {
+    "UP",
+    "DOWN",
+    "LEFT",
+    "RIGHT",
+}
+
 local LAYOUT_OPTIONS = {
     "HORIZONTAL",
     "VERTICAL",
@@ -71,6 +78,28 @@ local function StyleFlatButton(button, active)
         button:SetBackdropColor(0.10, 0.10, 0.13, 1)
         button:SetBackdropBorderColor(0.20, 0.20, 0.24, 1)
     end
+end
+
+local function CreateHeaderActionButton(parent, text, width, height, x, y, onClick)
+    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    button:SetSize(width, height)
+    button:SetPoint("TOPLEFT", x, y)
+    button.text = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    button.text:SetPoint("CENTER")
+    button.text:SetText(text)
+    button:SetScript("OnClick", onClick)
+
+    StyleFlatButton(button, false)
+
+    button:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(0.14, 0.14, 0.18, 1)
+    end)
+
+    button:SetScript("OnLeave", function(self)
+        StyleFlatButton(self, false)
+    end)
+
+    return button
 end
 
 local function CreateCheckbox(parent, label, x, y, initialValue, onClick)
@@ -264,7 +293,8 @@ function addon.config:RefreshControls()
     self.spacingSlider:SetValue(spacing)
     self.spacingValue:SetText(tostring(spacing))
 
-    UIDropDownMenu_SetText(self.layoutDropdown, addon:GetConfig("layout") or "HORIZONTAL")
+    -- UIDropDownMenu_SetText(self.layoutDropdown, addon:GetConfig("layout") or "HORIZONTAL")
+    UIDropDownMenu_SetText(self.growDropdown, addon:GetConfig("grow") or "RIGHT")
 
     local nameText = addon:GetConfig("nameText") or {}
     self.enableName:SetChecked(nameText.enabled ~= false)
@@ -288,6 +318,24 @@ function addon.config:InitLayoutDropdown()
             info.checked = (layout == current)
             info.func = function()
                 addon:SetConfig("layout", layout)
+                addon.config:RefreshControls()
+                addon:Refresh()
+            end
+            UIDropDownMenu_AddButton(info, level)
+        end
+    end)
+end
+
+function addon.config:InitGrowDropdown()
+    UIDropDownMenu_Initialize(self.growDropdown, function(_, level)
+        local current = addon:GetConfig("grow") or "RIGHT"
+
+        for _, grow in ipairs(GROW_OPTIONS) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = grow
+            info.checked = (grow == current)
+            info.func = function()
+                addon:SetConfig("grow", grow)
                 addon.config:RefreshControls()
                 addon:Refresh()
             end
@@ -352,13 +400,13 @@ function addon.config:CreateGeneralPage(parent)
         end
     )
 
-    local layoutSection = CreateSection(page, "Layout", 0, -84, 384, 74)
-    local layoutLabel = layoutSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    layoutLabel:SetPoint("TOPLEFT", 12, -40)
-    layoutLabel:SetText("Direction")
+    local layoutSection = CreateSection(page, "Grow Direction", 0, -84, 384, 74)
+    local growLabel = layoutSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    growLabel:SetPoint("TOPLEFT", 12, -40)
+    growLabel:SetText("Direction")
 
-    self.layoutDropdown = CreateDropdown(layoutSection, 140)
-    self.layoutDropdown:SetPoint("TOPLEFT", layoutLabel, "TOPRIGHT", 20, 10)
+    self.growDropdown = CreateDropdown(layoutSection, 140)
+    self.growDropdown:SetPoint("TOPLEFT", growLabel, "TOPRIGHT", 20, 10)
 
     local sizingSection = CreateSection(page, "Sizing", 0, -170, 384, 142)
 
@@ -685,6 +733,32 @@ function addon.config:CreateWindow()
     local closeButton = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeButton:SetPoint("TOPRIGHT", -4, -4)
 
+    self.refreshRosterButton = CreateFrame("Button", nil, f, "BackdropTemplate")
+    self.refreshRosterButton:SetSize(80, 22)
+    self.refreshRosterButton:SetPoint("TOPRIGHT", closeButton, "TOPLEFT", -8, -2)
+    self.refreshRosterButton.text = self.refreshRosterButton:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    self.refreshRosterButton.text:SetPoint("CENTER")
+    self.refreshRosterButton.text:SetText("Refresh")
+    self.refreshRosterButton:SetScript("OnClick", function()
+        if addon.roster and addon.roster.Scan then
+            addon.roster:Scan()
+        end
+        if addon.combatObserver and addon.combatObserver.RefreshWatches then
+            addon.combatObserver:RefreshWatches()
+        end
+        if addon.combat and addon.combat.Reset then
+            addon.combat:Reset()
+        end
+        addon:Refresh()
+    end)
+    StyleFlatButton(self.refreshRosterButton, false)
+    self.refreshRosterButton:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(0.14, 0.14, 0.18, 1)
+    end)
+    self.refreshRosterButton:SetScript("OnLeave", function(self)
+        StyleFlatButton(self, false)
+    end)
+
     self.generalTab = CreateTabButton(f, "General", 90, 24, 14, -52, function()
         addon.config:ShowTab("GENERAL")
     end)
@@ -707,7 +781,7 @@ function addon.config:CreateWindow()
 
     self.window = f
 
-    self:InitLayoutDropdown()
+    self:InitGrowDropdown()
     self:InitAnchorDropdown()
     self:ShowTab("GENERAL")
     self:RefreshControls()

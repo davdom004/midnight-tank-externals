@@ -63,9 +63,22 @@ local function CommitCooldown(casterGUID, spellID, startTime)
         return
     end
 
-    local cooldown = addon.combatRules and addon.combatRules:GetCooldownForSpellId(spellID)
-    if not cooldown then
+    local ruleCooldown = addon.combatRules and addon.combatRules:GetCooldownForSpellId(spellID)
+    if not ruleCooldown then
         return
+    end
+
+    local cooldown = ruleCooldown
+    local entry = GetRosterEntryByGuid(casterGUID)
+    if entry and entry.unit and addon.talents and addon.talents.GetUnitCooldown then
+        cooldown = addon.talents:GetUnitCooldown(
+            entry.unit,
+            entry.specID,
+            entry.class,
+            spellID,
+            ruleCooldown,
+            Now() - startTime
+        )
     end
 
     local cooldowns = EnsureCooldownTable()
@@ -104,6 +117,80 @@ local function SnapshotCastTimes()
     return snapshot
 end
 
+local function GetAllowedExternalRulesForEntry(entry)
+    if not entry or not entry.unit then
+        return {}
+    end
+
+    local measuredDummy = 0
+    local allRules = {}
+    local specID = entry.specID
+    local _, classTag = UnitClass(entry.unit)
+    if not classTag then
+        return allRules
+    end
+
+    local rules = addon.combatRules and addon.combatRules.rules
+    if not rules then
+        return allRules
+    end
+
+    local ruleList = nil
+    if specID and rules.BySpec and rules.BySpec[specID] then
+        ruleList = rules.BySpec[specID]
+    else
+        ruleList = rules.ByClass and rules.ByClass[classTag]
+    end
+
+    if not ruleList then
+        return allRules
+    end
+
+    for _, rule in ipairs(ruleList) do
+        if rule.ExternalDefensive == true and SpellIsAllowedForEntry(entry, rule.SpellId) then
+            allRules[#allRules + 1] = rule
+        end
+    end
+
+    return allRules
+end
+
+local function PredictRuleFromSnapshot(auraStartTime, castSnapshot)
+    local bestGuid = nil
+    local bestRule = nil
+    local bestCastTime = nil
+
+    for guid, castInfo in pairs(castSnapshot or {}) do
+        if castInfo and castInfo.time and math.abs(castInfo.time - auraStartTime) <= castWindow then
+            local entry = GetRosterEntryByGuid(guid)
+            if entry then
+                local rules = GetAllowedExternalRulesForEntry(entry)
+
+                if #rules == 1 then
+                    if (not bestCastTime) or castInfo.time > bestCastTime then
+                        bestGuid = guid
+                        bestRule = rules[1]
+                        bestCastTime = castInfo.time
+                    end
+                elseif castInfo.spellID and not issecretvalue(castInfo.spellID) then
+                    for _, rule in ipairs(rules) do
+                        if rule.SpellId == castInfo.spellID then
+                            if (not bestCastTime) or castInfo.time > bestCastTime then
+                                bestGuid = guid
+                                bestRule = rule
+                                bestCastTime = castInfo.time
+                            end
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return bestGuid, bestRule
+end
+
 local function TrackAura(watch, aura)
     if not watch or not watch.guid or not aura or not aura.auraInstanceID or issecretvalue(aura.auraInstanceID) then
         return
@@ -116,13 +203,34 @@ local function TrackAura(watch, aura)
     local auras = EnsureAuraTable(watch.guid)
     local existing = auras[aura.auraInstanceID]
 
+    if existing then
+        auras[aura.auraInstanceID] = {
+            auraInstanceID = aura.auraInstanceID,
+            startTime = existing.startTime,
+            targetGUID = watch.guid,
+            sourceGUID = existing.sourceGUID,
+            predictedSpellID = existing.predictedSpellID,
+            castSnapshot = existing.castSnapshot,
+        }
+        return
+    end
+
+    local startTime = Now()
+    local castSnapshot = SnapshotCastTimes()
+    local predictedGuid, predictedRule = PredictRuleFromSnapshot(startTime, castSnapshot)
+
     auras[aura.auraInstanceID] = {
         auraInstanceID = aura.auraInstanceID,
-        startTime = existing and existing.startTime or Now(),
+        startTime = startTime,
         targetGUID = watch.guid,
-        sourceGUID = existing and existing.sourceGUID or nil,
-        castSnapshot = existing and existing.castSnapshot or SnapshotCastTimes(),
+        sourceGUID = predictedGuid,
+        predictedSpellID = predictedRule and predictedRule.SpellId or nil,
+        castSnapshot = castSnapshot,
     }
+
+    if predictedGuid and predictedRule and predictedRule.SpellId then
+        CommitCooldown(predictedGuid, predictedRule.SpellId, startTime)
+    end
 end
 
 local function FindBestRuleForRemoval(auraData)
@@ -269,7 +377,6 @@ local function HandleCast(watch, spellID)
         return
     end
 
-    -- Immediate cooldown start only when spell ID is readable.
     if spellID and not issecretvalue(spellID) and addon.combatRules and addon.combatRules:IsExternalSpellId(spellID) then
         if SpellIsAllowedForEntry(entry, spellID) then
             CommitCooldown(watch.guid, spellID, Now())

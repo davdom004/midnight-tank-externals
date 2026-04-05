@@ -84,7 +84,7 @@ function addon.ui:ApplyFrameState()
         self.frame:SetBackdrop(nil)
         self.frame:EnableMouse(false)
     else
-        ApplyBorder(self.frame, 0.04, 0.04, 0.06, 0.45, 0.18, 0.18, 0.22, 0.85)
+        ApplyBorder(self.frame, 0.04, 0.04, 0.06, 0.45, 0.18, 0.18, 0.22, 0.85) -- shadow
         self.frame:EnableMouse(true)
     end
 end
@@ -121,21 +121,16 @@ function addon.ui:Init()
 end
 
 function addon.ui:CreateIcon(index)
-    local icon = CreateFrame("Frame", nil, self.frame, "BackdropTemplate")
-    ApplyBorder(icon, 0.05, 0.05, 0.06, 0.95, 0.16, 0.16, 0.18, 1)
+    local icon = CreateFrame("Frame", nil, self.frame)
 
-    icon.inner = CreateFrame("Frame", nil, icon)
-    icon.inner:SetPoint("TOPLEFT", 1, -1)
-    icon.inner:SetPoint("BOTTOMRIGHT", -1, 1)
-
-    icon.texture = icon.inner:CreateTexture(nil, "ARTWORK")
+    icon.texture = icon:CreateTexture(nil, "ARTWORK")
     icon.texture:SetAllPoints()
 
-    icon.shade = icon.inner:CreateTexture(nil, "BORDER")
+    icon.shade = icon:CreateTexture(nil, "BORDER")
     icon.shade:SetAllPoints()
     icon.shade:SetColorTexture(0, 0, 0, 0)
 
-    icon.cd = CreateFrame("Cooldown", nil, icon.inner, "CooldownFrameTemplate")
+    icon.cd = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
     icon.cd:SetAllPoints()
     icon.cd:SetFrameLevel(icon:GetFrameLevel() + 2)
 
@@ -174,7 +169,7 @@ function addon.ui:ApplyNameTextPosition(icon)
 end
 
 function addon.ui:Layout(count)
-    local layout = addon:GetConfig("layout")
+    local grow = addon:GetConfig("grow") or "RIGHT"
     local iconSize = addon:GetConfig("iconSize")
     local spacing = addon:GetConfig("spacing")
 
@@ -187,12 +182,26 @@ function addon.ui:Layout(count)
             icon:ClearAllPoints()
 
             if i == 1 then
-                icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
+                if grow == "LEFT" then
+                    icon:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", 0, 0)
+                elseif grow == "UP" then
+                    icon:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 0, 0)
+                elseif grow == "DOWN" then
+                    icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
+                else -- RIGHT
+                    icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
+                end
             else
-                if layout == "VERTICAL" then
-                    icon:SetPoint("TOP", self.icons[i - 1], "BOTTOM", 0, -spacing)
-                else
-                    icon:SetPoint("LEFT", self.icons[i - 1], "RIGHT", spacing, 0)
+                local prev = self.icons[i - 1]
+
+                if grow == "LEFT" then
+                    icon:SetPoint("RIGHT", prev, "LEFT", -spacing, 0)
+                elseif grow == "UP" then
+                    icon:SetPoint("BOTTOM", prev, "TOP", 0, spacing)
+                elseif grow == "DOWN" then
+                    icon:SetPoint("TOP", prev, "BOTTOM", 0, -spacing)
+                else -- RIGHT
+                    icon:SetPoint("LEFT", prev, "RIGHT", spacing, 0)
                 end
             end
 
@@ -209,31 +218,48 @@ function addon.ui:Layout(count)
         return
     end
 
-    if layout == "VERTICAL" then
-        self.frame:SetSize(iconSize, (iconSize * count) + (spacing * (count - 1)))
-    else
-        self.frame:SetSize((iconSize * count) + (spacing * (count - 1)), iconSize)
-    end
+    local totalWidth = (grow == "LEFT" or grow == "RIGHT")
+        and ((iconSize * count) + (spacing * (count - 1)))
+        or iconSize
+
+    local totalHeight = (grow == "UP" or grow == "DOWN")
+        and ((iconSize * count) + (spacing * (count - 1)))
+        or iconSize
+
+    self.frame:SetSize(totalWidth, totalHeight)
 end
 
 function addon.ui:BuildDisplayData()
+    local data = {}
+
     if addon:GetConfig("testMode") then
         if not addon.state.testData then
             local now = GetTime()
             addon.state.testData = {
-                { owner = "Playerone",   spellID = 33206,  readyAt = now + 20  },
-                { owner = "Playertwo",   spellID = 102342, readyAt = now + 60  },
-                { owner = "Playerthree", spellID = 6940,   readyAt = now - 5   },
-                { owner = "Playerfour",  spellID = 47788,  readyAt = now + 120 },
+                { owner = "Playerone",   class = "PRIEST",  spellID = 33206,  readyAt = now + 20  },
+                { owner = "Playertwo",   class = "DRUID",   spellID = 102342, readyAt = now + 60  },
+                { owner = "Playerthree", class = "PALADIN", spellID = 6940,   readyAt = now - 5   },
+                { owner = "Playerfour",  class = "PRIEST",  spellID = 47788,  readyAt = now + 120 },
+                { owner = "Playerfive",  class = "MONK",    spellID = 116849, readyAt = now + 45  },
+                { owner = "Playersix",   class = "EVOKER",  spellID = 357170, readyAt = now + 15  },
             }
         end
 
-        return addon.state.testData
+        for _, entry in ipairs(addon.state.testData) do
+            if addon:IsSpellEnabled(entry.spellID) then
+                data[#data + 1] = {
+                    owner = entry.owner,
+                    class = entry.class,
+                    spellID = entry.spellID,
+                    readyAt = entry.readyAt,
+                }
+            end
+        end
+
+        return data
     end
 
     addon.state.testData = nil
-
-    local data = {}
 
     for _, entry in pairs(addon.state.roster or {}) do
         for _, spellID in ipairs(entry.externals or {}) do
@@ -320,7 +346,6 @@ function addon.ui:Update()
             icon.texture:SetDesaturated(false)
             icon.shade:SetColorTexture(0, 0, 0, 0)
             icon:SetAlpha(1)
-            icon:SetBackdropBorderColor(0.45, 0.45, 0.52, 1)
         else
             if duration > 0 then
                 icon.cd:SetCooldown(entry.readyAt - duration, duration)
@@ -332,7 +357,6 @@ function addon.ui:Update()
             icon.texture:SetDesaturated(true)
             icon.shade:SetColorTexture(0, 0, 0, 0.20)
             icon:SetAlpha(0.82)
-            icon:SetBackdropBorderColor(0.18, 0.18, 0.22, 1)
         end
     end
 end

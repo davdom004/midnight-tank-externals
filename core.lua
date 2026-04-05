@@ -8,7 +8,8 @@ addon.version = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMet
 addon.defaults = {
     testMode = false,
     locked = false,
-    layout = "HORIZONTAL",
+    -- layout = "HORIZONTAL",
+    grow = "RIGHT",
     iconSize = 40,
     spacing = 6,
     position = {
@@ -37,7 +38,7 @@ addon.defaults = {
         specFilter = {
             [6940] = {
                 [65] = true, -- Holy
-                [66] = true, -- Protection
+                [66] = false, -- Protection
             },
         },
     },
@@ -120,6 +121,14 @@ f:SetScript("OnEvent", function(_, event)
     end
 
     TankExternalsDB = CopyDefaults(addon.defaults, TankExternalsDB or {})
+    -- Migrator
+    if TankExternalsDB.grow == nil and TankExternalsDB.layout ~= nil then
+        if TankExternalsDB.layout == "VERTICAL" then
+            TankExternalsDB.grow = "DOWN"
+        else
+            TankExternalsDB.grow = "RIGHT"
+        end
+    end
 
     if addon.ui then
         addon.ui:Init()
