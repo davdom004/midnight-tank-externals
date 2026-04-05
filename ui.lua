@@ -241,7 +241,7 @@ function addon.ui:BuildDisplayData()
                 owner = entry.name or "?",
                 class = entry.class,
                 spellID = spellID,
-                readyAt = 0,
+                readyAt = (addon.combat and addon.combat.GetReadyAt and addon.combat:GetReadyAt(entry.guid, spellID)) or 0,
             }
         end
     end

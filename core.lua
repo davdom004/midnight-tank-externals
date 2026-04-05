@@ -111,5 +111,9 @@ f:SetScript("OnEvent", function()
         addon.roster:Init()
     end
 
+    if addon.combat and addon.combat.Init then
+        addon.combat:Init()
+    end
+
     addon:Refresh()
 end)
