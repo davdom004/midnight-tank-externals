@@ -235,13 +235,14 @@ function addon.ui:BuildDisplayData()
 
     local data = {}
 
-    for guid, spells in pairs(addon.state.externals) do
-        for spellID, spellData in pairs(spells) do
-            table.insert(data, {
-                owner = spellData.owner or guid or "?",
+    for _, entry in pairs(addon.state.roster or {}) do
+        for _, spellID in ipairs(entry.externals or {}) do
+            data[#data + 1] = {
+                owner = entry.name or "?",
+                class = entry.class,
                 spellID = spellID,
-                readyAt = spellData.readyAt,
-            })
+                readyAt = 0,
+            }
         end
     end
 
@@ -273,7 +274,11 @@ function addon.ui:Update()
             return a.readyAt < b.readyAt
         end
 
-        return (a.owner or "") < (b.owner or "")
+        if (a.owner or "") ~= (b.owner or "") then
+            return (a.owner or "") < (b.owner or "")
+        end
+
+        return (a.spellID or 0) < (b.spellID or 0)
     end)
 
     self:EnsureIcons(#data)
@@ -292,11 +297,19 @@ function addon.ui:Update()
 
         icon.texture:SetTexture(texture)
 
-        local shouldShowName = showName and (remaining <= 0)
-
-        if shouldShowName then
+        if showName then
             icon.nameText:Show()
-            icon.nameText:SetText(TruncateText(entry.owner or "?", truncate))
+            local name = TruncateText(entry.owner or "?", truncate)
+            icon.nameText:SetText(name)
+
+            local classTag = entry.class
+            local color = RAID_CLASS_COLORS[classTag]
+            if color then
+                local hex = color.colorStr or ("ff%02x%02x%02x"):format(color.r*255, color.g*255, color.b*255)
+                icon.nameText:SetText("|c" .. hex .. name .. "|r")
+            else
+                icon.nameText:SetText(name)
+            end
         else
             icon.nameText:SetText("")
             icon.nameText:Hide()

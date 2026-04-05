@@ -65,6 +65,7 @@ end
 
 addon.state = {
     externals = {},
+    roster = {},
 }
 
 function addon:GetConfig(key)
@@ -104,6 +105,10 @@ f:SetScript("OnEvent", function()
 
     if addon.config and addon.config.Init then
         addon.config:Init()
+    end
+
+    if addon.roster and addon.roster.Init then
+        addon.roster:Init()
     end
 
     addon:Refresh()
