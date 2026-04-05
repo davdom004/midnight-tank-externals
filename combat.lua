@@ -70,6 +70,7 @@ local function CommitCooldown(casterGUID, spellID, startTime)
 
     local cooldown = ruleCooldown
     local entry = GetRosterEntryByGuid(casterGUID)
+
     if entry and entry.unit and addon.talents and addon.talents.GetUnitCooldown then
         cooldown = addon.talents:GetUnitCooldown(
             entry.unit,

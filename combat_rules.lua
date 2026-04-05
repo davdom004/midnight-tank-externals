@@ -189,8 +189,15 @@ function addon.combatRules:GetMatchingRule(unit, measuredDuration)
     end
 
     local _, classToken = UnitClass(unit)
-    local specID = addon.talents and addon.talents.GetUnitSpecId and addon.talents:GetUnitSpecId(unit)
-        or (addon.roster and addon.roster.GetUnitSpecID and addon.roster:GetUnitSpecID(unit))
+    local specID = nil
+
+    if addon.talents and addon.talents.GetUnitSpecId then
+        specID = addon.talents:GetUnitSpecId(unit)
+    end
+
+    if not specID and addon.roster and addon.roster.GetUnitSpecID then
+        specID = addon.roster:GetUnitSpecID(unit)
+    end
 
     for _, rule in ipairs(ruleList) do
         local expected = rule.BuffDuration

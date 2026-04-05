@@ -2,6 +2,7 @@ local _, addon = ...
 
 addon.ui = {
     frame = nil,
+    anchorFrame = nil,
     icons = {},
     elapsed = 0,
     updateInterval = 0.1,
@@ -37,11 +38,11 @@ local function ApplyBorder(frame, bgR, bgG, bgB, bgA, brR, brG, brB, brA)
 end
 
 function addon.ui:SavePosition()
-    if not self.frame then
+    if not self.anchorFrame then
         return
     end
 
-    local point, _, relativePoint, x, y = self.frame:GetPoint(1)
+    local point, _, relativePoint, x, y = self.anchorFrame:GetPoint(1)
 
     TankExternalsDB.position = TankExternalsDB.position or {}
     TankExternalsDB.position.point = point
@@ -51,7 +52,7 @@ function addon.ui:SavePosition()
 end
 
 function addon.ui:LoadPosition()
-    if not self.frame then
+    if not self.anchorFrame then
         return
     end
 
@@ -60,8 +61,8 @@ function addon.ui:LoadPosition()
         return
     end
 
-    self.frame:ClearAllPoints()
-    self.frame:SetPoint(
+    self.anchorFrame:ClearAllPoints()
+    self.anchorFrame:SetPoint(
         pos.point or "CENTER",
         UIParent,
         pos.relativePoint or "CENTER",
@@ -71,41 +72,44 @@ function addon.ui:LoadPosition()
 end
 
 function addon.ui:ApplyFrameState()
-    if not self.frame then
+    if not self.anchorFrame or not self.frame then
         return
     end
 
     local locked = addon:GetConfig("locked")
     local iconSize = addon:GetConfig("iconSize")
 
-    self.frame:SetSize(iconSize, iconSize)
+    self.anchorFrame:SetSize(iconSize, iconSize)
 
     if locked then
-        self.frame:SetBackdrop(nil)
-        self.frame:EnableMouse(false)
+        self.anchorFrame:SetBackdrop(nil)
+        self.anchorFrame:EnableMouse(false)
     else
-        ApplyBorder(self.frame, 0.04, 0.04, 0.06, 0.45, 0.18, 0.18, 0.22, 0.85) -- shadow
-        self.frame:EnableMouse(true)
+        ApplyBorder(self.anchorFrame, 0.04, 0.04, 0.06, 0.45, 0.18, 0.18, 0.22, 0.85)
+        self.anchorFrame:EnableMouse(true)
     end
 end
 
 function addon.ui:Init()
-    local f = CreateFrame("Frame", "TankExternalsFrame", UIParent, "BackdropTemplate")
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetClampedToScreen(true)
+    local anchor = CreateFrame("Frame", "TankExternalsAnchorFrame", UIParent, "BackdropTemplate")
+    anchor:SetMovable(true)
+    anchor:EnableMouse(true)
+    anchor:RegisterForDrag("LeftButton")
+    anchor:SetClampedToScreen(true)
 
-    f:SetScript("OnDragStart", function(frame)
+    anchor:SetScript("OnDragStart", function(frame)
         if not addon:GetConfig("locked") then
             frame:StartMoving()
         end
     end)
 
-    f:SetScript("OnDragStop", function(frame)
+    anchor:SetScript("OnDragStop", function(frame)
         frame:StopMovingOrSizing()
         addon.ui:SavePosition()
     end)
+
+    local f = CreateFrame("Frame", "TankExternalsFrame", UIParent)
+    f:SetClampedToScreen(true)
 
     f:SetScript("OnUpdate", function(_, elapsed)
         addon.ui.elapsed = addon.ui.elapsed + elapsed
@@ -115,7 +119,9 @@ function addon.ui:Init()
         end
     end)
 
+    self.anchorFrame = anchor
     self.frame = f
+
     self:LoadPosition()
     self:ApplyFrameState()
 end
@@ -186,9 +192,7 @@ function addon.ui:Layout(count)
                     icon:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", 0, 0)
                 elseif grow == "UP" then
                     icon:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", 0, 0)
-                elseif grow == "DOWN" then
-                    icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
-                else -- RIGHT
+                else
                     icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
                 end
             else
@@ -200,7 +204,7 @@ function addon.ui:Layout(count)
                     icon:SetPoint("BOTTOM", prev, "TOP", 0, spacing)
                 elseif grow == "DOWN" then
                     icon:SetPoint("TOP", prev, "BOTTOM", 0, -spacing)
-                else -- RIGHT
+                else
                     icon:SetPoint("LEFT", prev, "RIGHT", spacing, 0)
                 end
             end
@@ -215,18 +219,29 @@ function addon.ui:Layout(count)
 
     if count == 0 then
         self.frame:SetSize(iconSize, iconSize)
-        return
+    else
+        local totalWidth = (grow == "LEFT" or grow == "RIGHT")
+            and ((iconSize * count) + (spacing * (count - 1)))
+            or iconSize
+
+        local totalHeight = (grow == "UP" or grow == "DOWN")
+            and ((iconSize * count) + (spacing * (count - 1)))
+            or iconSize
+
+        self.frame:SetSize(totalWidth, totalHeight)
     end
 
-    local totalWidth = (grow == "LEFT" or grow == "RIGHT")
-        and ((iconSize * count) + (spacing * (count - 1)))
-        or iconSize
+    self.frame:ClearAllPoints()
 
-    local totalHeight = (grow == "UP" or grow == "DOWN")
-        and ((iconSize * count) + (spacing * (count - 1)))
-        or iconSize
-
-    self.frame:SetSize(totalWidth, totalHeight)
+    if grow == "LEFT" then
+        self.frame:SetPoint("TOPRIGHT", self.anchorFrame, "TOPRIGHT", 0, 0)
+    elseif grow == "UP" then
+        self.frame:SetPoint("BOTTOMLEFT", self.anchorFrame, "BOTTOMLEFT", 0, 0)
+    elseif grow == "DOWN" then
+        self.frame:SetPoint("TOPLEFT", self.anchorFrame, "TOPLEFT", 0, 0)
+    else
+        self.frame:SetPoint("TOPLEFT", self.anchorFrame, "TOPLEFT", 0, 0)
+    end
 end
 
 function addon.ui:BuildDisplayData()

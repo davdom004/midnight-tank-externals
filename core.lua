@@ -142,6 +142,10 @@ f:SetScript("OnEvent", function(_, event)
         addon.roster:Init()
     end
 
+    if addon.talents and addon.talents.Init then
+        addon.talents:Init()
+    end
+
     if InCombatLockdown() then
         pendingCombatModules = true
     else
