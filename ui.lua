@@ -1,0 +1,295 @@
+local _, addon = ...
+
+addon.ui = {
+    frame = nil,
+    icons = {},
+    elapsed = 0,
+    updateInterval = 0.1,
+}
+
+local function TruncateText(text, maxChars)
+    if not text then
+        return ""
+    end
+
+    maxChars = tonumber(maxChars) or 0
+    if maxChars <= 0 then
+        return text
+    end
+
+    if #text <= maxChars then
+        return text
+    end
+
+    return string.sub(text, 1, maxChars)
+end
+
+function addon.ui:SavePosition()
+    if not self.frame then
+        return
+    end
+
+    local point, _, relativePoint, x, y = self.frame:GetPoint(1)
+
+    TankExternalsDB.position = TankExternalsDB.position or {}
+    TankExternalsDB.position.point = point
+    TankExternalsDB.position.relativePoint = relativePoint
+    TankExternalsDB.position.x = x
+    TankExternalsDB.position.y = y
+end
+
+function addon.ui:LoadPosition()
+    if not self.frame then
+        return
+    end
+
+    local pos = addon:GetConfig("position")
+    if not pos then
+        return
+    end
+
+    self.frame:ClearAllPoints()
+    self.frame:SetPoint(
+        pos.point or "CENTER",
+        UIParent,
+        pos.relativePoint or "CENTER",
+        pos.x or 0,
+        pos.y or 0
+    )
+end
+
+function addon.ui:ApplyFrameState()
+    if not self.frame then
+        return
+    end
+
+    local locked = addon:GetConfig("locked")
+    local iconSize = addon:GetConfig("iconSize")
+
+    self.frame:SetSize(iconSize, iconSize)
+
+    if locked then
+        self.frame:SetBackdrop(nil)
+        self.frame:EnableMouse(false)
+    else
+        self.frame:SetBackdrop({
+            bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+        })
+        self.frame:SetBackdropColor(0, 0, 0, 0.3)
+        self.frame:EnableMouse(true)
+    end
+end
+
+function addon.ui:Init()
+    local f = CreateFrame("Frame", "TankExternalsFrame", UIParent, "BackdropTemplate")
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetClampedToScreen(true)
+
+    f:SetScript("OnDragStart", function(frame)
+        if not addon:GetConfig("locked") then
+            frame:StartMoving()
+        end
+    end)
+
+    f:SetScript("OnDragStop", function(frame)
+        frame:StopMovingOrSizing()
+        addon.ui:SavePosition()
+    end)
+
+    f:SetScript("OnUpdate", function(_, elapsed)
+        addon.ui.elapsed = addon.ui.elapsed + elapsed
+        if addon.ui.elapsed >= addon.ui.updateInterval then
+            addon.ui.elapsed = 0
+            addon.ui:Update()
+        end
+    end)
+
+    self.frame = f
+    self:LoadPosition()
+    self:ApplyFrameState()
+end
+
+function addon.ui:CreateIcon(index)
+    local icon = CreateFrame("Frame", nil, self.frame)
+
+    icon.texture = icon:CreateTexture(nil, "ARTWORK")
+    icon.texture:SetAllPoints()
+
+    icon.cd = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
+    icon.cd:SetAllPoints()
+
+    icon.nameText = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    icon.nameText:SetMaxLines(1)
+    icon.nameText:SetWordWrap(false)
+
+    self.icons[index] = icon
+    return icon
+end
+
+function addon.ui:EnsureIcons(count)
+    for i = 1, count do
+        if not self.icons[i] then
+            self:CreateIcon(i)
+        end
+    end
+end
+
+function addon.ui:ApplyNameTextPosition(icon)
+    local nameCfg = addon:GetConfig("nameText") or {}
+    local anchor = nameCfg.anchor or "BOTTOMLEFT"
+    local x = nameCfg.x or 0
+    local y = nameCfg.y or 0
+    local fontSize = nameCfg.fontSize or 10
+
+    icon.nameText:ClearAllPoints()
+    icon.nameText:SetPoint(anchor, icon, anchor, x, y)
+    icon.nameText:SetWidth(0)
+    icon.nameText:SetFont(STANDARD_TEXT_FONT, fontSize, "OUTLINE")
+end
+
+function addon.ui:Layout(count)
+    local layout = addon:GetConfig("layout")
+    local iconSize = addon:GetConfig("iconSize")
+    local spacing = addon:GetConfig("spacing")
+
+    for i = 1, count do
+        local icon = self.icons[i]
+        if icon then
+            icon:SetSize(iconSize, iconSize)
+            self:ApplyNameTextPosition(icon)
+
+            icon:ClearAllPoints()
+
+            if i == 1 then
+                icon:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
+            else
+                if layout == "VERTICAL" then
+                    icon:SetPoint("TOP", self.icons[i - 1], "BOTTOM", 0, -spacing)
+                else
+                    icon:SetPoint("LEFT", self.icons[i - 1], "RIGHT", spacing, 0)
+                end
+            end
+
+            icon:Show()
+        end
+    end
+
+    for i = count + 1, #self.icons do
+        self.icons[i]:Hide()
+    end
+
+    if count == 0 then
+        self.frame:SetSize(iconSize, iconSize)
+        return
+    end
+
+    if layout == "VERTICAL" then
+        self.frame:SetSize(iconSize, (iconSize * count) + (spacing * (count - 1)))
+    else
+        self.frame:SetSize((iconSize * count) + (spacing * (count - 1)), iconSize)
+    end
+end
+
+function addon.ui:BuildDisplayData()
+    if addon:GetConfig("testMode") then
+        if not addon.state.testData then
+            local now = GetTime()
+            addon.state.testData = {
+                { owner = "Playerone",   spellID = 33206,  readyAt = now + 20  },
+                { owner = "Playertwo",   spellID = 102342, readyAt = now + 60  },
+                { owner = "Playerthree", spellID = 6940,   readyAt = now - 5   },
+                { owner = "Playerfour",  spellID = 47788,  readyAt = now + 120 },
+            }
+        end
+
+        return addon.state.testData
+    end
+
+    addon.state.testData = nil
+
+    local data = {}
+
+    for guid, spells in pairs(addon.state.externals) do
+        for spellID, spellData in pairs(spells) do
+            table.insert(data, {
+                owner = spellData.owner or guid or "?",
+                spellID = spellID,
+                readyAt = spellData.readyAt,
+            })
+        end
+    end
+
+    return data
+end
+
+function addon.ui:Update()
+    if not self.frame then
+        return
+    end
+
+    self:ApplyFrameState()
+
+    local now = GetTime()
+    local data = self:BuildDisplayData()
+
+    table.sort(data, function(a, b)
+        local aRemaining = a.readyAt - now
+        local bRemaining = b.readyAt - now
+
+        local aReady = aRemaining <= 0
+        local bReady = bRemaining <= 0
+
+        if aReady ~= bReady then
+            return aReady
+        end
+
+        if a.readyAt ~= b.readyAt then
+            return a.readyAt < b.readyAt
+        end
+
+        return (a.owner or "") < (b.owner or "")
+    end)
+
+    self:EnsureIcons(#data)
+    self:Layout(#data)
+
+    local nameCfg = addon:GetConfig("nameText") or {}
+    local truncate = nameCfg.truncate or 0
+    local showName = nameCfg.enabled ~= false
+
+    for index, entry in ipairs(data) do
+        local icon = self.icons[index]
+        local spellInfo = addon.spells[entry.spellID]
+        local texture = C_Spell.GetSpellTexture(entry.spellID)
+        local duration = spellInfo and spellInfo.cooldown or 0
+        local remaining = entry.readyAt - now
+
+        icon.texture:SetTexture(texture)
+
+        if showName then
+            icon.nameText:Show()
+            icon.nameText:SetText(TruncateText(entry.owner or "?", truncate))
+        else
+            icon.nameText:SetText("")
+            icon.nameText:Hide()
+        end
+
+        if remaining <= 0 then
+            icon.cd:Hide()
+            icon.texture:SetDesaturated(false)
+            icon:SetAlpha(1)
+        else
+            if duration > 0 then
+                icon.cd:SetCooldown(entry.readyAt - duration, duration)
+                icon.cd:Show()
+            else
+                icon.cd:Hide()
+            end
+
+            icon.texture:SetDesaturated(true)
+            icon:SetAlpha(0.75)
+        end
+    end
+end

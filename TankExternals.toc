@@ -1,0 +1,14 @@
+## Interface: 120001
+## Title: TankExternals
+## Notes: Tank external tracker using healer spec slots.
+## Author: David
+## Version: 0.1.5
+## SavedVariables: TankExternalsDB
+
+core.lua
+config.lua
+spells.lua
+roster.lua
+combat.lua
+ui.lua
+debug.lua
