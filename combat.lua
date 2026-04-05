@@ -8,6 +8,44 @@ local function Now()
     return GetTime()
 end
 
+local function UnitIsTrackedRosterUnit(unit)
+    if not unit or not UnitExists(unit) then
+        return false
+    end
+
+    for _, entry in pairs(addon.state.roster or {}) do
+        if entry.unit and UnitIsUnit(entry.unit, unit) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function SpellIsAllowedForUnit(unit, spellID)
+    if not IsTrackedSpell(spellID) or not addon:IsSpellEnabled(spellID) then
+        return false
+    end
+
+    local _, classTag = UnitClass(unit)
+    local info = addon.spells and addon.spells[spellID]
+    if not info or info.class ~= classTag then
+        return false
+    end
+
+    local specID = addon.roster and addon.roster.GetUnitSpecID and addon.roster:GetUnitSpecID(unit)
+    if info.specs and next(info.specs) ~= nil then
+        if not specID or not info.specs[specID] then
+            return false
+        end
+        if not addon:IsSpellSpecAllowed(spellID, specID) then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function IsTrackedSpell(spellID)
     return addon.spells and addon.spells[spellID] ~= nil
 end
@@ -52,7 +90,13 @@ local function CommitCooldown(casterGUID, spellID, startTime)
 
     local cooldowns = EnsureCooldownTable()
     cooldowns[casterGUID] = cooldowns[casterGUID] or {}
-    cooldowns[casterGUID][spellID] = startTime + cooldown
+
+    local newReadyAt = startTime + cooldown
+    local existingReadyAt = cooldowns[casterGUID][spellID] or 0
+
+    if newReadyAt > existingReadyAt then
+        cooldowns[casterGUID][spellID] = newReadyAt
+    end
 end
 
 local function TrackAura(targetUnit, aura)
@@ -178,6 +222,32 @@ local function HandleUnitAura(unit, updateInfo)
     addon:Refresh()
 end
 
+local function HandleSpellCastSucceeded(unit, spellID)
+    if not unit or not UnitExists(unit) then
+        return
+    end
+
+    if UnitCanAttack("player", unit) then
+        return
+    end
+
+    if not UnitIsTrackedRosterUnit(unit) then
+        return
+    end
+
+    if not SpellIsAllowedForUnit(unit, spellID) then
+        return
+    end
+
+    local casterGUID = UnitGUID(unit)
+    if not casterGUID or issecretvalue(casterGUID) then
+        return
+    end
+
+    CommitCooldown(casterGUID, spellID, Now())
+    addon:Refresh()
+end
+
 local function RebuildAllTrackedAuras()
     trackedAurasByTargetGuid = {}
 
@@ -214,6 +284,7 @@ function addon.combat:Init()
     self.frame = frame
 
     frame:RegisterEvent("UNIT_AURA")
+    frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     frame:RegisterEvent("GROUP_ROSTER_UPDATE")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 
@@ -221,6 +292,12 @@ function addon.combat:Init()
         if event == "UNIT_AURA" then
             local unit, updateInfo = ...
             HandleUnitAura(unit, updateInfo)
+            return
+        end
+
+        if event == "UNIT_SPELLCAST_SUCCEEDED" then
+            local unit, _, spellID = ...
+            HandleSpellCastSucceeded(unit, spellID)
             return
         end
 

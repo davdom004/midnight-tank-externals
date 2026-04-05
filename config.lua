@@ -599,6 +599,9 @@ function addon.config:CreateSpellsPage(parent)
             filters.enabled[spellID] = btn:GetChecked() and true or false
             addon:SetConfig("spellFilters", filters)
             addon.config:RefreshControls()
+            if addon.roster and addon.roster.Scan then
+                addon.roster:Scan()
+            end
             addon:Refresh()
         end)
 
@@ -629,6 +632,9 @@ function addon.config:CreateSpellsPage(parent)
                     filters.specFilter[spellID][specID] = btn:GetChecked() and true or false
                     addon:SetConfig("spellFilters", filters)
                     addon.config:RefreshControls()
+                    if addon.roster and addon.roster.Scan then
+                        addon.roster:Scan()
+                    end
                     addon:Refresh()
                 end)
 
