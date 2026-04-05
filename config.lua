@@ -19,6 +19,60 @@ local LAYOUT_OPTIONS = {
     "VERTICAL",
 }
 
+local function ApplyPanelBackdrop(frame, alpha)
+    frame:SetBackdrop({
+        bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        tile = false,
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    frame:SetBackdropColor(0.06, 0.06, 0.08, alpha or 0.96)
+    frame:SetBackdropBorderColor(0.20, 0.20, 0.24, 1)
+end
+
+local function CreateSection(parent, titleText, x, y, width, height)
+    local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    frame:SetPoint("TOPLEFT", x, y)
+    frame:SetSize(width, height)
+    ApplyPanelBackdrop(frame, 0.75)
+
+    local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    title:SetPoint("TOPLEFT", 12, -10)
+    title:SetText(titleText)
+
+    local divider = frame:CreateTexture(nil, "BORDER")
+    divider:SetColorTexture(1, 1, 1, 0.06)
+    divider:SetPoint("TOPLEFT", 10, -30)
+    divider:SetPoint("TOPRIGHT", -10, -30)
+    divider:SetHeight(1)
+
+    frame.title = title
+    return frame
+end
+
+local function StyleFlatButton(button, active)
+    button:SetNormalFontObject("GameFontHighlightSmall")
+    button:SetHighlightFontObject("GameFontHighlightSmall")
+    button:SetDisabledFontObject("GameFontDisableSmall")
+
+    button:SetBackdrop({
+        bgFile = "Interface/Buttons/WHITE8X8",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        tile = false,
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+
+    if active then
+        button:SetBackdropColor(0.18, 0.18, 0.24, 1)
+        button:SetBackdropBorderColor(0.38, 0.38, 0.48, 1)
+    else
+        button:SetBackdropColor(0.10, 0.10, 0.13, 1)
+        button:SetBackdropBorderColor(0.20, 0.20, 0.24, 1)
+    end
+end
+
 local function CreateCheckbox(parent, label, x, y, initialValue, onClick)
     local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     check:SetPoint("TOPLEFT", x, y)
@@ -30,16 +84,6 @@ local function CreateCheckbox(parent, label, x, y, initialValue, onClick)
         onClick(self:GetChecked() and true or false)
     end)
     return check
-end
-
-local function CreateRadio(parent, label, x, y, onClick)
-    local button = CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate")
-    button:SetPoint("TOPLEFT", x, y)
-    button.text = button:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    button.text:SetPoint("LEFT", button, "RIGHT", 4, 0)
-    button.text:SetText(label)
-    button:SetScript("OnClick", onClick)
-    return button
 end
 
 local function CreateDropdown(parent, width)
@@ -77,19 +121,40 @@ local function CreateNumberEditBox(parent, width, height, x, y, applyValue)
 end
 
 local function CreateToggleButton(parent, label, width, height, x, y, initialValue, onClick)
-    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
     button:SetSize(width, height)
     button:SetPoint("TOPLEFT", x, y)
     button.label = label
     button.isOn = initialValue and true or false
 
+    ApplyPanelBackdrop(button, 1)
+
+    button.text = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    button.text:SetPoint("CENTER")
+
     local function Refresh()
         if button.isOn then
-            button:SetText(label .. ": ON")
+            button.text:SetText(label .. ": ON")
+            button:SetBackdropColor(0.16, 0.24, 0.18, 1)
+            button:SetBackdropBorderColor(0.35, 0.52, 0.38, 1)
         else
-            button:SetText(label .. ": OFF")
+            button.text:SetText(label .. ": OFF")
+            button:SetBackdropColor(0.12, 0.12, 0.14, 1)
+            button:SetBackdropBorderColor(0.22, 0.22, 0.26, 1)
         end
     end
+
+    button:SetScript("OnEnter", function(self)
+        if self.isOn then
+            self:SetBackdropColor(0.20, 0.28, 0.22, 1)
+        else
+            self:SetBackdropColor(0.15, 0.15, 0.18, 1)
+        end
+    end)
+
+    button:SetScript("OnLeave", function()
+        Refresh()
+    end)
 
     button:SetScript("OnClick", function(self)
         self.isOn = not self.isOn
@@ -107,11 +172,14 @@ local function CreateToggleButton(parent, label, width, height, x, y, initialVal
 end
 
 local function CreateTabButton(parent, text, width, height, x, y, onClick)
-    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
     button:SetSize(width, height)
     button:SetPoint("TOPLEFT", x, y)
-    button:SetText(text)
+    button.text = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    button.text:SetPoint("CENTER")
+    button.text:SetText(text)
     button:SetScript("OnClick", onClick)
+    StyleFlatButton(button, false)
     return button
 end
 
@@ -133,6 +201,11 @@ function addon.config:ShowTab(tabName)
             self.textPage:Hide()
         end
     end
+
+    if self.generalTab and self.textTab then
+        StyleFlatButton(self.generalTab, tabName == "GENERAL")
+        StyleFlatButton(self.textTab, tabName == "TEXT")
+    end
 end
 
 function addon.config:RefreshOwnerNameVisibility()
@@ -142,27 +215,16 @@ function addon.config:RefreshOwnerNameVisibility()
 
     local enabled = ((addon:GetConfig("nameText") or {}).enabled ~= false)
 
-    local controls = {
-        self.nameAnchorLabel,
-        self.nameAnchorDropdown,
-        self.nameXLabel,
-        self.nameXBox,
-        self.nameYLabel,
-        self.nameYBox,
-        self.truncateLabel,
-        self.nameTruncateBox,
-        self.fontSizeLabel,
-        self.nameFontSizeBox,
-    }
+    if self.positionSection then
+        if enabled then self.positionSection:Show() else self.positionSection:Hide() end
+    end
 
-    for _, control in ipairs(controls) do
-        if control then
-            if enabled then
-                control:Show()
-            else
-                control:Hide()
-            end
-        end
+    if self.contentSection then
+        if enabled then self.contentSection:Show() else self.contentSection:Hide() end
+    end
+
+    if self.typographySection then
+        if enabled then self.typographySection:Show() else self.typographySection:Hide() end
     end
 end
 
@@ -237,13 +299,14 @@ function addon.config:CreateGeneralPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     page:SetAllPoints(parent)
 
+    local stateSection = CreateSection(page, "State", 0, 0, 384, 72)
     self.testModeButton = CreateToggleButton(
-        page,
+        stateSection,
         "Test Mode",
-        140,
-        24,
-        16,
-        -16,
+        150,
+        26,
+        12,
+        -38,
         addon:GetConfig("testMode"),
         function(value)
             addon:SetConfig("testMode", value)
@@ -255,12 +318,12 @@ function addon.config:CreateGeneralPage(parent)
     )
 
     self.lockedButton = CreateToggleButton(
-        page,
+        stateSection,
         "Lock Frame",
-        140,
-        24,
-        170,
-        -16,
+        150,
+        26,
+        174,
+        -38,
         addon:GetConfig("locked"),
         function(value)
             addon:SetConfig("locked", value)
@@ -268,19 +331,22 @@ function addon.config:CreateGeneralPage(parent)
         end
     )
 
-    local layoutLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    layoutLabel:SetPoint("TOPLEFT", 16, -58)
-    layoutLabel:SetText("Layout")
+    local layoutSection = CreateSection(page, "Layout", 0, -84, 384, 74)
+    local layoutLabel = layoutSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    layoutLabel:SetPoint("TOPLEFT", 12, -40)
+    layoutLabel:SetText("Direction")
 
-    self.layoutDropdown = CreateDropdown(page, 140)
+    self.layoutDropdown = CreateDropdown(layoutSection, 140)
     self.layoutDropdown:SetPoint("TOPLEFT", layoutLabel, "TOPRIGHT", 20, 10)
 
-    local iconSizeLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    iconSizeLabel:SetPoint("TOPLEFT", 16, -106)
+    local sizingSection = CreateSection(page, "Sizing", 0, -170, 384, 142)
+
+    local iconSizeLabel = sizingSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    iconSizeLabel:SetPoint("TOPLEFT", 12, -40)
     iconSizeLabel:SetText("Icon Size")
 
-    self.iconSizeSlider = CreateFrame("Slider", "TankExternalsIconSizeSlider", page, "OptionsSliderTemplate")
-    self.iconSizeSlider:SetPoint("TOPLEFT", 16, -126)
+    self.iconSizeSlider = CreateFrame("Slider", "TankExternalsIconSizeSlider", sizingSection, "OptionsSliderTemplate")
+    self.iconSizeSlider:SetPoint("TOPLEFT", 12, -60)
     self.iconSizeSlider:SetWidth(220)
     self.iconSizeSlider:SetMinMaxValues(24, 80)
     self.iconSizeSlider:SetValueStep(1)
@@ -290,7 +356,7 @@ function addon.config:CreateGeneralPage(parent)
     _G[self.iconSizeSlider:GetName() .. "High"]:SetText("80")
     _G[self.iconSizeSlider:GetName() .. "Text"]:SetText("")
 
-    self.iconSizeValue = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    self.iconSizeValue = sizingSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     self.iconSizeValue:SetPoint("LEFT", self.iconSizeSlider, "RIGHT", 12, 0)
 
     self.iconSizeSlider:SetScript("OnValueChanged", function(_, value)
@@ -300,12 +366,12 @@ function addon.config:CreateGeneralPage(parent)
         addon:Refresh()
     end)
 
-    local spacingLabel = page:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    spacingLabel:SetPoint("TOPLEFT", 16, -172)
+    local spacingLabel = sizingSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    spacingLabel:SetPoint("TOPLEFT", 12, -92)
     spacingLabel:SetText("Spacing")
 
-    self.spacingSlider = CreateFrame("Slider", "TankExternalsSpacingSlider", page, "OptionsSliderTemplate")
-    self.spacingSlider:SetPoint("TOPLEFT", 16, -192)
+    self.spacingSlider = CreateFrame("Slider", "TankExternalsSpacingSlider", sizingSection, "OptionsSliderTemplate")
+    self.spacingSlider:SetPoint("TOPLEFT", 12, -112)
     self.spacingSlider:SetWidth(220)
     self.spacingSlider:SetMinMaxValues(0, 20)
     self.spacingSlider:SetValueStep(1)
@@ -315,7 +381,7 @@ function addon.config:CreateGeneralPage(parent)
     _G[self.spacingSlider:GetName() .. "High"]:SetText("20")
     _G[self.spacingSlider:GetName() .. "Text"]:SetText("")
 
-    self.spacingValue = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    self.spacingValue = sizingSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     self.spacingValue:SetPoint("LEFT", self.spacingSlider, "RIGHT", 12, 0)
 
     self.spacingSlider:SetScript("OnValueChanged", function(_, value)
@@ -332,11 +398,12 @@ function addon.config:CreateTextPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     page:SetAllPoints(parent)
 
+    self.visibilitySection = CreateSection(page, "Visibility", 0, 0, 384, 72)
     self.enableName = CreateCheckbox(
-        page,
+        self.visibilitySection,
         "Enable Owner Name",
-        16,
-        -16,
+        12,
+        -38,
         (addon:GetConfig("nameText") or {}).enabled ~= false,
         function(value)
             local nameText = addon:GetConfig("nameText") or {}
@@ -347,18 +414,20 @@ function addon.config:CreateTextPage(parent)
         end
     )
 
-    self.nameAnchorLabel = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    self.nameAnchorLabel:SetPoint("TOPLEFT", 16, -52)
+    self.positionSection = CreateSection(page, "Position", 0, -76, 384, 92)
+
+    self.nameAnchorLabel = self.positionSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    self.nameAnchorLabel:SetPoint("TOPLEFT", 12, -40)
     self.nameAnchorLabel:SetText("Anchor")
 
-    self.nameAnchorDropdown = CreateDropdown(page, 140)
+    self.nameAnchorDropdown = CreateDropdown(self.positionSection, 140)
     self.nameAnchorDropdown:SetPoint("TOPLEFT", self.nameAnchorLabel, "TOPRIGHT", 20, 10)
 
-    self.nameXLabel = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    self.nameXLabel:SetPoint("TOPLEFT", 16, -96)
+    self.nameXLabel = self.positionSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    self.nameXLabel:SetPoint("TOPLEFT", 12, -70)
     self.nameXLabel:SetText("X Offset")
 
-    self.nameXBox = CreateNumberEditBox(page, 60, 22, 120, -90, function(selfBox)
+    self.nameXBox = CreateNumberEditBox(self.positionSection, 60, 22, 110, -64, function(selfBox)
         local value = tonumber(selfBox:GetText())
         if not value then
             local current = ((addon:GetConfig("nameText") or {}).x or 0)
@@ -377,11 +446,11 @@ function addon.config:CreateTextPage(parent)
         addon:Refresh()
     end)
 
-    self.nameYLabel = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    self.nameYLabel:SetPoint("TOPLEFT", 16, -130)
+    self.nameYLabel = self.positionSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    self.nameYLabel:SetPoint("TOPLEFT", 200, -70)
     self.nameYLabel:SetText("Y Offset")
 
-    self.nameYBox = CreateNumberEditBox(page, 60, 22, 120, -124, function(selfBox)
+    self.nameYBox = CreateNumberEditBox(self.positionSection, 60, 22, 292, -64, function(selfBox)
         local value = tonumber(selfBox:GetText())
         if not value then
             local current = ((addon:GetConfig("nameText") or {}).y or 0)
@@ -400,11 +469,13 @@ function addon.config:CreateTextPage(parent)
         addon:Refresh()
     end)
 
-    self.truncateLabel = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    self.truncateLabel:SetPoint("TOPLEFT", 16, -164)
+    self.contentSection = CreateSection(page, "Content", 0, -180, 384, 64)
+
+    self.truncateLabel = self.contentSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    self.truncateLabel:SetPoint("TOPLEFT", 12, -40)
     self.truncateLabel:SetText("Character Limit")
 
-    self.nameTruncateBox = CreateNumberEditBox(page, 60, 22, 120, -158, function(selfBox)
+    self.nameTruncateBox = CreateNumberEditBox(self.contentSection, 60, 22, 122, -34, function(selfBox)
         local value = tonumber(selfBox:GetText())
         if not value then
             local current = ((addon:GetConfig("nameText") or {}).truncate or 0)
@@ -423,11 +494,13 @@ function addon.config:CreateTextPage(parent)
         addon:Refresh()
     end)
 
-    self.fontSizeLabel = page:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    self.fontSizeLabel:SetPoint("TOPLEFT", 16, -198)
+    self.typographySection = CreateSection(page, "Typography", 0, -256, 384, 64)
+
+    self.fontSizeLabel = self.typographySection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    self.fontSizeLabel:SetPoint("TOPLEFT", 12, -40)
     self.fontSizeLabel:SetText("Font Size")
 
-    self.nameFontSizeBox = CreateNumberEditBox(page, 60, 22, 120, -192, function(selfBox)
+    self.nameFontSizeBox = CreateNumberEditBox(self.typographySection, 60, 22, 122, -34, function(selfBox)
         local value = tonumber(selfBox:GetText())
         if not value then
             local current = ((addon:GetConfig("nameText") or {}).fontSize or 10)
@@ -451,21 +524,22 @@ end
 
 function addon.config:CreateWindow()
     local f = CreateFrame("Frame", "TankExternalsConfigWindow", UIParent, "BackdropTemplate")
-    f:SetSize(420, 360)
+    f:SetSize(420, 450)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     f:SetFrameStrata("DIALOG")
     f:SetClampedToScreen(true)
     f:Hide()
 
-    f:SetBackdrop({
-        bgFile = "Interface/Tooltips/UI-Tooltip-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        tile = true,
-        tileSize = 16,
-        edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    ApplyPanelBackdrop(f, 0.97)
+
+    local header = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    header:SetPoint("TOPLEFT", 1, -1)
+    header:SetPoint("TOPRIGHT", -1, -1)
+    header:SetHeight(42)
+    header:SetBackdrop({
+        bgFile = "Interface/Buttons/WHITE8X8",
     })
-    f:SetBackdropColor(0, 0, 0, 0.95)
+    header:SetBackdropColor(0.09, 0.09, 0.12, 1)
 
     f:SetMovable(true)
     f:EnableMouse(true)
@@ -473,28 +547,24 @@ function addon.config:CreateWindow()
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
 
-    local title = f:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", 16, -14)
-    title:SetText(string.format("%s - %s", addon.name or "Tank Externals", addon.version or "DEV"))
+    local title = header:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("LEFT", 14, 0)
+    title:SetText(string.format("%s - v%s", addon.name or "Tank Externals", addon.version or "DEV"))
 
     local closeButton = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     closeButton:SetPoint("TOPRIGHT", -4, -4)
 
-    local subtitle = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-    subtitle:SetText("/te to open or close")
-
-    self.generalTab = CreateTabButton(f, "General", 90, 22, 16, -46, function()
+    self.generalTab = CreateTabButton(f, "General", 90, 24, 14, -52, function()
         addon.config:ShowTab("GENERAL")
     end)
 
-    self.textTab = CreateTabButton(f, "Text", 90, 22, 112, -46, function()
+    self.textTab = CreateTabButton(f, "Text", 90, 24, 110, -52, function()
         addon.config:ShowTab("TEXT")
     end)
 
     local content = CreateFrame("Frame", nil, f)
-    content:SetPoint("TOPLEFT", 12, -76)
-    content:SetPoint("BOTTOMRIGHT", -12, 12)
+    content:SetPoint("TOPLEFT", 18, -84)
+    content:SetPoint("BOTTOMRIGHT", -18, 16)
 
     self:CreateGeneralPage(content)
     self:CreateTextPage(content)

@@ -24,6 +24,18 @@ local function TruncateText(text, maxChars)
     return string.sub(text, 1, maxChars)
 end
 
+local function ApplyBorder(frame, bgR, bgG, bgB, bgA, brR, brG, brB, brA)
+    frame:SetBackdrop({
+        bgFile = "Interface/Buttons/WHITE8X8",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        tile = false,
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    frame:SetBackdropColor(bgR, bgG, bgB, bgA)
+    frame:SetBackdropBorderColor(brR, brG, brB, brA)
+end
+
 function addon.ui:SavePosition()
     if not self.frame then
         return
@@ -72,10 +84,7 @@ function addon.ui:ApplyFrameState()
         self.frame:SetBackdrop(nil)
         self.frame:EnableMouse(false)
     else
-        self.frame:SetBackdrop({
-            bgFile = "Interface/Tooltips/UI-Tooltip-Background",
-        })
-        self.frame:SetBackdropColor(0, 0, 0, 0.3)
+        ApplyBorder(self.frame, 0.04, 0.04, 0.06, 0.45, 0.18, 0.18, 0.22, 0.85)
         self.frame:EnableMouse(true)
     end
 end
@@ -112,12 +121,21 @@ function addon.ui:Init()
 end
 
 function addon.ui:CreateIcon(index)
-    local icon = CreateFrame("Frame", nil, self.frame)
+    local icon = CreateFrame("Frame", nil, self.frame, "BackdropTemplate")
+    ApplyBorder(icon, 0.05, 0.05, 0.06, 0.95, 0.16, 0.16, 0.18, 1)
 
-    icon.texture = icon:CreateTexture(nil, "ARTWORK")
+    icon.inner = CreateFrame("Frame", nil, icon)
+    icon.inner:SetPoint("TOPLEFT", 1, -1)
+    icon.inner:SetPoint("BOTTOMRIGHT", -1, 1)
+
+    icon.texture = icon.inner:CreateTexture(nil, "ARTWORK")
     icon.texture:SetAllPoints()
 
-    icon.cd = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
+    icon.shade = icon.inner:CreateTexture(nil, "BORDER")
+    icon.shade:SetAllPoints()
+    icon.shade:SetColorTexture(0, 0, 0, 0)
+
+    icon.cd = CreateFrame("Cooldown", nil, icon.inner, "CooldownFrameTemplate")
     icon.cd:SetAllPoints()
 
     icon.nameText = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -147,6 +165,7 @@ function addon.ui:ApplyNameTextPosition(icon)
     icon.nameText:SetPoint(anchor, icon, anchor, x, y)
     icon.nameText:SetWidth(0)
     icon.nameText:SetFont(STANDARD_TEXT_FONT, fontSize, "OUTLINE")
+    icon.nameText:SetTextColor(0.96, 0.96, 0.98, 1)
 end
 
 function addon.ui:Layout(count)
@@ -279,7 +298,9 @@ function addon.ui:Update()
         if remaining <= 0 then
             icon.cd:Hide()
             icon.texture:SetDesaturated(false)
+            icon.shade:SetColorTexture(0, 0, 0, 0)
             icon:SetAlpha(1)
+            icon:SetBackdropBorderColor(0.45, 0.45, 0.52, 1)
         else
             if duration > 0 then
                 icon.cd:SetCooldown(entry.readyAt - duration, duration)
@@ -289,7 +310,9 @@ function addon.ui:Update()
             end
 
             icon.texture:SetDesaturated(true)
-            icon:SetAlpha(0.75)
+            icon.shade:SetColorTexture(0, 0, 0, 0.20)
+            icon:SetAlpha(0.82)
+            icon:SetBackdropBorderColor(0.18, 0.18, 0.22, 1)
         end
     end
 end
