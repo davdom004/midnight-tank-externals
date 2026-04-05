@@ -25,6 +25,22 @@ addon.defaults = {
         truncate = 5, -- 0 = full name
         fontSize = 10,
     },
+    spellFilters = {
+        enabled = {
+            [33206] = true,
+            [47788] = true,
+            [102342] = true,
+            [6940] = true,
+            [116849] = true,
+            [357170] = true,
+        },
+        specFilter = {
+            [6940] = {
+                [65] = true, -- Holy
+                [66] = true, -- Protection
+            },
+        },
+    },
 }
 
 local function CopyDefaults(src, dst)

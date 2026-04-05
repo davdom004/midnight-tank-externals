@@ -137,8 +137,13 @@ function addon.ui:CreateIcon(index)
 
     icon.cd = CreateFrame("Cooldown", nil, icon.inner, "CooldownFrameTemplate")
     icon.cd:SetAllPoints()
+    icon.cd:SetFrameLevel(icon:GetFrameLevel() + 2)
 
-    icon.nameText = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    icon.foreground = CreateFrame("Frame", nil, icon)
+    icon.foreground:SetAllPoints()
+    icon.foreground:SetFrameLevel(icon:GetFrameLevel() + 10)
+
+    icon.nameText = icon.foreground:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     icon.nameText:SetMaxLines(1)
     icon.nameText:SetWordWrap(false)
 
@@ -287,7 +292,9 @@ function addon.ui:Update()
 
         icon.texture:SetTexture(texture)
 
-        if showName then
+        local shouldShowName = showName and (remaining <= 0)
+
+        if shouldShowName then
             icon.nameText:Show()
             icon.nameText:SetText(TruncateText(entry.owner or "?", truncate))
         else

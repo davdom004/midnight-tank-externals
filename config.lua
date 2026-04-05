@@ -187,24 +187,21 @@ function addon.config:ShowTab(tabName)
     self.activeTab = tabName
 
     if self.generalPage then
-        if tabName == "GENERAL" then
-            self.generalPage:Show()
-        else
-            self.generalPage:Hide()
-        end
+        if tabName == "GENERAL" then self.generalPage:Show() else self.generalPage:Hide() end
     end
 
     if self.textPage then
-        if tabName == "TEXT" then
-            self.textPage:Show()
-        else
-            self.textPage:Hide()
-        end
+        if tabName == "TEXT" then self.textPage:Show() else self.textPage:Hide() end
     end
 
-    if self.generalTab and self.textTab then
+    if self.spellsPage then
+        if tabName == "SPELLS" then self.spellsPage:Show() else self.spellsPage:Hide() end
+    end
+
+    if self.generalTab and self.textTab and self.spellsTab then
         StyleFlatButton(self.generalTab, tabName == "GENERAL")
         StyleFlatButton(self.textTab, tabName == "TEXT")
+        StyleFlatButton(self.spellsTab, tabName == "SPELLS")
     end
 end
 
@@ -225,6 +222,29 @@ function addon.config:RefreshOwnerNameVisibility()
 
     if self.typographySection then
         if enabled then self.typographySection:Show() else self.typographySection:Hide() end
+    end
+end
+
+function addon.config:RefreshSpellControls()
+    if not self.spellRows then
+        return
+    end
+
+    for spellID, row in pairs(self.spellRows) do
+        row.enabled:SetChecked(addon:IsSpellEnabled(spellID))
+
+        if row.specChecks then
+            local spellFilters = addon:GetConfig("spellFilters") or {}
+            local spellSpecFilter = spellFilters.specFilter and spellFilters.specFilter[spellID]
+
+            for specID, specCheck in pairs(row.specChecks) do
+                local checked = true
+                if spellSpecFilter and spellSpecFilter[specID] ~= nil then
+                    checked = spellSpecFilter[specID]
+                end
+                specCheck:SetChecked(checked == true)
+            end
+        end
     end
 end
 
@@ -255,6 +275,7 @@ function addon.config:RefreshControls()
     self.nameFontSizeBox:SetText(tostring(nameText.fontSize or 10))
 
     self:RefreshOwnerNameVisibility()
+    self:RefreshSpellControls()
 end
 
 function addon.config:InitLayoutDropdown()
@@ -522,9 +543,113 @@ function addon.config:CreateTextPage(parent)
     self.textPage = page
 end
 
+function addon.config:CreateSpellsPage(parent)
+    local page = CreateFrame("Frame", nil, parent)
+    page:SetAllPoints(parent)
+
+    local section = CreateSection(page, "Tracked Spells", 0, 0, 384, 320)
+
+    self.spellRows = {}
+
+    local y = -42
+    for _, entry in ipairs(addon:GetSpellList()) do
+        local spellID = entry.spellID
+        local info = entry.info
+
+        local row = CreateFrame("Frame", nil, section)
+        row:SetPoint("TOPLEFT", 12, y)
+        row:SetSize(350, 24)
+
+        row.iconFrame = CreateFrame("Frame", nil, row)
+        row.iconFrame:SetSize(18, 18)
+        row.iconFrame:SetPoint("LEFT", 0, 0)
+        row.iconFrame:EnableMouse(true)
+
+        row.icon = row.iconFrame:CreateTexture(nil, "ARTWORK")
+        row.icon:SetAllPoints()
+        row.icon:SetTexture(C_Spell.GetSpellTexture(spellID))
+
+        local function ShowSpellTooltip(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            if GameTooltip.SetSpellByID then
+                GameTooltip:SetSpellByID(spellID)
+            else
+                GameTooltip:SetHyperlink("spell:" .. spellID)
+            end
+            GameTooltip:Show()
+        end
+
+        local function HideSpellTooltip()
+            GameTooltip:Hide()
+        end
+
+        row.iconFrame:SetScript("OnEnter", ShowSpellTooltip)
+        row.iconFrame:SetScript("OnLeave", HideSpellTooltip)
+
+        row.label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        row.label:SetPoint("LEFT", row.iconFrame, "RIGHT", 8, 0)
+        row.label:SetText(info.name)
+
+        row.enabled = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+        row.enabled:SetPoint("RIGHT", 0, 0)
+        row.enabled:SetChecked(addon:IsSpellEnabled(spellID))
+        row.enabled:SetScript("OnClick", function(btn)
+            local filters = addon:GetConfig("spellFilters") or {}
+            filters.enabled = filters.enabled or {}
+            filters.enabled[spellID] = btn:GetChecked() and true or false
+            addon:SetConfig("spellFilters", filters)
+            addon.config:RefreshControls()
+            addon:Refresh()
+        end)
+
+        row.specChecks = nil
+        self.spellRows[spellID] = row
+
+        if info.allowSpecFilter and info.specs then
+            y = y - 20
+            row.specChecks = {}
+
+            local specIDs = {}
+            for specID in pairs(info.specs) do
+                table.insert(specIDs, specID)
+            end
+            table.sort(specIDs)
+
+            local specX = 30
+            for _, specID in ipairs(specIDs) do
+                local specName = info.specs[specID]
+
+                local specCheck = CreateFrame("CheckButton", nil, section, "UICheckButtonTemplate")
+                specCheck:SetPoint("TOPLEFT", specX, y)
+                specCheck:SetChecked(addon:IsSpellSpecAllowed(spellID, specID))
+                specCheck:SetScript("OnClick", function(btn)
+                    local filters = addon:GetConfig("spellFilters") or {}
+                    filters.specFilter = filters.specFilter or {}
+                    filters.specFilter[spellID] = filters.specFilter[spellID] or {}
+                    filters.specFilter[spellID][specID] = btn:GetChecked() and true or false
+                    addon:SetConfig("spellFilters", filters)
+                    addon.config:RefreshControls()
+                    addon:Refresh()
+                end)
+
+                local specLabel = specCheck:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+                specLabel:SetPoint("LEFT", specCheck, "RIGHT", 2, 0)
+                specLabel:SetText(specName)
+
+                row.specChecks[specID] = specCheck
+                specX = specX + 110
+            end
+        end
+
+        y = y - 30
+    end
+
+    self.spellsPage = page
+end
+
 function addon.config:CreateWindow()
     local f = CreateFrame("Frame", "TankExternalsConfigWindow", UIParent, "BackdropTemplate")
-    f:SetSize(420, 450)
+    f:SetSize(420, 410)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     f:SetFrameStrata("DIALOG")
     f:SetClampedToScreen(true)
@@ -562,12 +687,17 @@ function addon.config:CreateWindow()
         addon.config:ShowTab("TEXT")
     end)
 
+    self.spellsTab = CreateTabButton(f, "Spells", 90, 24, 206, -52, function()
+        addon.config:ShowTab("SPELLS")
+    end)
+
     local content = CreateFrame("Frame", nil, f)
     content:SetPoint("TOPLEFT", 18, -84)
     content:SetPoint("BOTTOMRIGHT", -18, 16)
 
     self:CreateGeneralPage(content)
     self:CreateTextPage(content)
+    self:CreateSpellsPage(content)
 
     self.window = f
 
