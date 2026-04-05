@@ -22,6 +22,10 @@ local function UnitIsTrackedRosterUnit(unit)
     return false
 end
 
+local function IsTrackedSpell(spellID)
+    return addon.spells and addon.spells[spellID] ~= nil
+end
+
 local function SpellIsAllowedForUnit(unit, spellID)
     if not IsTrackedSpell(spellID) or not addon:IsSpellEnabled(spellID) then
         return false
@@ -44,10 +48,6 @@ local function SpellIsAllowedForUnit(unit, spellID)
     end
 
     return true
-end
-
-local function IsTrackedSpell(spellID)
-    return addon.spells and addon.spells[spellID] ~= nil
 end
 
 local function EnsureCooldownTable()
@@ -223,6 +223,11 @@ local function HandleUnitAura(unit, updateInfo)
 end
 
 local function HandleSpellCastSucceeded(unit, spellID)
+    -- print("--------------CAST--------------")
+    -- print("unit", unit)
+    -- print("spellID", spellID)
+    -- print("UnitName", UnitName(unit))
+    -- print("--------------------------------")
     if not unit or not UnitExists(unit) then
         return
     end
@@ -296,7 +301,7 @@ function addon.combat:Init()
         end
 
         if event == "UNIT_SPELLCAST_SUCCEEDED" then
-            local unit, _, spellID = ...
+            local unit, castGUID, spellID = ...
             HandleSpellCastSucceeded(unit, spellID)
             return
         end
