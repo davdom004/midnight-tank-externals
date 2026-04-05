@@ -93,10 +93,32 @@ SlashCmdList["TANKEXTERNALS"] = function()
     end
 end
 
+local pendingCombatModules = false
+
+local function InitCombatModules()
+    if addon.combatObserver and addon.combatObserver.Init then
+        addon.combatObserver:Init()
+    end
+
+    if addon.combat and addon.combat.Init then
+        addon.combat:Init()
+    end
+end
+
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
+f:RegisterEvent("PLAYER_REGEN_ENABLED")
 
-f:SetScript("OnEvent", function()
+f:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        if pendingCombatModules and not InCombatLockdown() then
+            pendingCombatModules = false
+            InitCombatModules()
+            addon:Refresh()
+        end
+        return
+    end
+
     TankExternalsDB = CopyDefaults(addon.defaults, TankExternalsDB or {})
 
     if addon.ui then
@@ -111,8 +133,10 @@ f:SetScript("OnEvent", function()
         addon.roster:Init()
     end
 
-    if addon.combat and addon.combat.Init then
-        addon.combat:Init()
+    if InCombatLockdown() then
+        pendingCombatModules = true
+    else
+        InitCombatModules()
     end
 
     addon:Refresh()
