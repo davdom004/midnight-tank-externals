@@ -38,6 +38,7 @@ addon.spells = {
         specs = {
             [65] = "Holy",
             [66] = "Protection",
+            [70] = "Retribution"
         },
         configurable = true,
         allowSpecFilter = true,

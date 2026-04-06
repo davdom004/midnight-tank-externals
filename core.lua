@@ -39,6 +39,7 @@ addon.defaults = {
             [6940] = {
                 [65] = true, -- Holy
                 [66] = false, -- Protection
+                [70] = false -- Retri
             },
         },
     },

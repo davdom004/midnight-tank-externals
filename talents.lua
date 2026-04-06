@@ -34,26 +34,7 @@ local SpecCooldownModifiers = {
 }
 
 -- Assumed defaults when we do not have real talent data for a group member.
-local SpecDefaultTalentRanks = {
-    [105] = {
-        [382552] = 1,
-    },
-    [1468] = {
-        [376204] = 1,
-    },
-    [270] = {
-        [202424] = 1,
-    },
-    [65] = {
-        [384820] = 1,
-    },
-    [66] = {
-        [384820] = 1,
-    },
-    [70] = {
-        [384820] = 1,
-    },
-}
+local SpecDefaultTalentRanks = {}
 
 local playerTalentRanks = {}
 
