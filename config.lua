@@ -26,6 +26,52 @@ local LAYOUT_OPTIONS = {
     "VERTICAL",
 }
 
+local function AbbreviateSpellName(name)
+    if not name or name == "" then
+        return "Spell"
+    end
+
+    if #name <= 12 then
+        return name
+    end
+
+    local initials = {}
+    for word in string.gmatch(name, "%S+") do
+        initials[#initials + 1] = string.sub(word, 1, 1)
+    end
+
+    if #initials >= 2 then
+        return table.concat(initials)
+    end
+
+    return string.sub(name, 1, 12)
+end
+
+local function AbbreviateSpecName(name)
+    local known = {
+        Restoration = "Resto",
+        Preservation = "Pres",
+        Mistweaver = "MW",
+        Protection = "Prot",
+        Retribution = "Ret",
+        Discipline = "Disc",
+    }
+
+    if known[name] then
+        return known[name]
+    end
+
+    if not name or name == "" then
+        return "Spec"
+    end
+
+    if #name <= 8 then
+        return name
+    end
+
+    return string.sub(name, 1, 8)
+end
+
 local function ApplyPanelBackdrop(frame, alpha)
     frame:SetBackdrop({
         bgFile = "Interface/Tooltips/UI-Tooltip-Background",
@@ -200,6 +246,75 @@ local function CreateToggleButton(parent, label, width, height, x, y, initialVal
     return button
 end
 
+local function CreateCycleStateButton(parent, label, width, height, x, y, initialState, onClick)
+    local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    button:SetSize(width, height)
+    button:SetPoint("TOPLEFT", x, y)
+    button.label = label
+    button.state = initialState
+
+    ApplyPanelBackdrop(button, 1)
+
+    button.text = button:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    button.text:SetPoint("CENTER")
+
+    local function Refresh()
+        if button.state == true then
+            button.text:SetText(button.label .. ": ON")
+            button:SetBackdropColor(0.16, 0.24, 0.18, 1)
+            button:SetBackdropBorderColor(0.35, 0.52, 0.38, 1)
+        elseif button.state == false then
+            button.text:SetText(button.label .. ": OFF")
+            button:SetBackdropColor(0.25, 0.14, 0.14, 1)
+            button:SetBackdropBorderColor(0.52, 0.28, 0.28, 1)
+        else
+            button.text:SetText(button.label .. ": DEFAULT")
+            button:SetBackdropColor(0.12, 0.12, 0.14, 1)
+            button:SetBackdropBorderColor(0.22, 0.22, 0.26, 1)
+        end
+    end
+
+    button:SetScript("OnEnter", function(self)
+        if self.state == true then
+            self:SetBackdropColor(0.20, 0.28, 0.22, 1)
+        elseif self.state == false then
+            self:SetBackdropColor(0.30, 0.17, 0.17, 1)
+        else
+            self:SetBackdropColor(0.15, 0.15, 0.18, 1)
+        end
+    end)
+
+    button:SetScript("OnLeave", function()
+        Refresh()
+    end)
+
+    button:SetScript("OnClick", function(self)
+        if self.state == nil then
+            self.state = true
+        elseif self.state == true then
+            self.state = false
+        else
+            self.state = nil
+        end
+
+        Refresh()
+        onClick(self, self.state)
+    end)
+
+    button.SetLabel = function(self, value)
+        self.label = value
+        Refresh()
+    end
+
+    button.SetState = function(self, value)
+        self.state = value
+        Refresh()
+    end
+
+    Refresh()
+    return button
+end
+
 local function CreateTabButton(parent, text, width, height, x, y, onClick)
     local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
     button:SetSize(width, height)
@@ -227,10 +342,19 @@ function addon.config:ShowTab(tabName)
         if tabName == "SPELLS" then self.spellsPage:Show() else self.spellsPage:Hide() end
     end
 
-    if self.generalTab and self.textTab and self.spellsTab then
+    if self.rosterPage then
+        if tabName == "ROSTER" then self.rosterPage:Show() else self.rosterPage:Hide() end
+    end
+
+    if self.generalTab and self.textTab and self.spellsTab and self.rosterTab then
         StyleFlatButton(self.generalTab, tabName == "GENERAL")
         StyleFlatButton(self.textTab, tabName == "TEXT")
         StyleFlatButton(self.spellsTab, tabName == "SPELLS")
+        StyleFlatButton(self.rosterTab, tabName == "ROSTER")
+    end
+
+    if tabName == "ROSTER" then
+        self:RefreshRosterOverrides()
     end
 end
 
@@ -274,6 +398,12 @@ function addon.config:RefreshSpellControls()
                 specCheck:SetChecked(checked == true)
             end
         end
+
+        if row.modifierButtons and addon.talents and addon.talents.GetDefaultModifierEnabled then
+            for _, button in ipairs(row.modifierButtons) do
+                button:SetState(addon.talents:GetDefaultModifierEnabled(spellID, button.specID))
+            end
+        end
     end
 end
 
@@ -306,6 +436,139 @@ function addon.config:RefreshControls()
 
     self:RefreshOwnerNameVisibility()
     self:RefreshSpellControls()
+    self:RefreshRosterOverrides()
+end
+
+function addon.config:RefreshRosterOverrides()
+    if not self.rosterContent then
+        return
+    end
+
+    self.rosterRows = self.rosterRows or {}
+
+    local entries = {}
+    for _, entry in pairs(addon.state.roster or {}) do
+        entries[#entries + 1] = entry
+    end
+
+    table.sort(entries, function(a, b)
+        if (a.name or "") ~= (b.name or "") then
+            return (a.name or "") < (b.name or "")
+        end
+
+        return (a.guid or "") < (b.guid or "")
+    end)
+
+    local rowHeight = 58
+    local offsetY = -4
+
+    for index, entry in ipairs(entries) do
+        local row = self.rosterRows[index]
+        if not row then
+            row = CreateFrame("Frame", nil, self.rosterContent, "BackdropTemplate")
+            row:SetSize(348, rowHeight)
+            ApplyPanelBackdrop(row, 0.55)
+
+            row.nameText = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+            row.nameText:SetPoint("TOPLEFT", 10, -8)
+
+            row.detailText = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            row.detailText:SetPoint("TOPLEFT", 10, -24)
+            row.detailText:SetTextColor(0.72, 0.72, 0.76, 1)
+
+            row.emptyText = row:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+            row.emptyText:SetPoint("TOPLEFT", 10, -40)
+
+            row.buttons = {}
+            self.rosterRows[index] = row
+        end
+
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 0, offsetY)
+        row:Show()
+
+        local specName = entry.specID and GetSpecializationInfoByID and select(2, GetSpecializationInfoByID(entry.specID))
+        if not specName then
+            specName = entry.specID and tostring(entry.specID) or "Unknown spec"
+        end
+
+        row.nameText:SetText(entry.name or "?")
+        row.detailText:SetText(string.format("%s  |  %s", entry.class or "Unknown", specName))
+
+        local options = {}
+        if addon.talents and addon.talents.GetSpecCooldownModifierOptions then
+            options = addon.talents:GetSpecCooldownModifierOptions(entry.specID)
+        end
+
+        local isPlayer = entry.unit and UnitExists(entry.unit) and UnitIsUnit(entry.unit, "player")
+
+        for buttonIndex, button in ipairs(row.buttons) do
+            if buttonIndex > #options then
+                button:Hide()
+            end
+        end
+
+        if isPlayer then
+            for _, button in ipairs(row.buttons) do
+                button:Hide()
+            end
+            row.emptyText:SetText("Uses your live talent data.")
+            row.emptyText:Show()
+        elseif #options == 0 then
+            row.emptyText:SetText("No configurable cooldown reductions for this spec yet.")
+            row.emptyText:Show()
+        else
+            row.emptyText:Hide()
+        end
+
+        if not isPlayer then
+            for optionIndex, option in ipairs(options) do
+                local button = row.buttons[optionIndex]
+                if not button then
+                    button = CreateCycleStateButton(
+                        row,
+                        "",
+                        104,
+                        22,
+                        10 + ((optionIndex - 1) * 112),
+                        -32,
+                        nil,
+                        function(selfButton, state)
+                            addon.talents:SetRosterModifierOverride(
+                                selfButton.guid,
+                                selfButton.spellID,
+                                selfButton.specID,
+                                state
+                            )
+                            addon:Refresh()
+                            addon.config:RefreshRosterOverrides()
+                        end
+                    )
+                    row.buttons[optionIndex] = button
+                end
+
+                button.guid = entry.guid
+                button.spellID = option.spellID
+                button.specID = option.specID
+                button:SetLabel(string.format("%s %ds", AbbreviateSpellName(option.spellName), option.amount))
+                button:SetState(addon.talents:GetRosterModifierOverride(entry.guid, option.spellID, option.specID))
+                button:Show()
+            end
+        end
+
+        offsetY = offsetY - rowHeight - 8
+    end
+
+    for index = #entries + 1, #self.rosterRows do
+        self.rosterRows[index]:Hide()
+    end
+
+    local contentHeight = math.max((#entries * (rowHeight + 8)) + 16, self.rosterScroll and self.rosterScroll:GetHeight() or 1)
+    self.rosterContent:SetHeight(contentHeight)
+
+    if self.rosterEmptyLabel then
+        self.rosterEmptyLabel:SetShown(#entries == 0)
+    end
 end
 
 function addon.config:InitLayoutDropdown()
@@ -654,6 +917,7 @@ function addon.config:CreateSpellsPage(parent)
         end)
 
         row.specChecks = nil
+        row.modifierButtons = nil
         self.spellRows[spellID] = row
 
         if info.allowSpecFilter and info.specs then
@@ -695,10 +959,76 @@ function addon.config:CreateSpellsPage(parent)
             end
         end
 
+        local modifierOptions = {}
+        if addon.talents and addon.talents.GetSpellCooldownModifierOptions then
+            modifierOptions = addon.talents:GetSpellCooldownModifierOptions(spellID)
+        end
+
+        if #modifierOptions > 0 then
+            y = y - 20
+            row.modifierButtons = {}
+
+            local modifierLabel = section:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            modifierLabel:SetPoint("TOPLEFT", 30, y)
+            modifierLabel:SetText("Default CDR")
+            row.modifierLabel = modifierLabel
+
+            local buttonX = 112
+            for index, option in ipairs(modifierOptions) do
+                local button = CreateToggleButton(
+                    section,
+                    string.format("%s %ds", AbbreviateSpecName(option.specName), option.amount),
+                    84,
+                    20,
+                    buttonX + ((index - 1) * 84),
+                    y + 6,
+                    addon.talents:GetDefaultModifierEnabled(spellID, option.specID),
+                    function(value)
+                        addon.talents:SetDefaultModifierEnabled(spellID, option.specID, value)
+                        addon:Refresh()
+                        addon.config:RefreshControls()
+                    end
+                )
+                button.specID = option.specID
+                row.modifierButtons[index] = button
+            end
+        end
+
         y = y - 30
     end
 
     self.spellsPage = page
+end
+
+function addon.config:CreateRosterPage(parent)
+    local page = CreateFrame("Frame", nil, parent)
+    page:SetAllPoints(parent)
+
+    local section = CreateSection(page, "Roster Overrides", 0, 0, 384, 320)
+
+    local description = section:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    description:SetPoint("TOPLEFT", 12, -40)
+    description:SetPoint("TOPRIGHT", -12, -40)
+    description:SetJustifyH("LEFT")
+    description:SetText("Cycle each entry between Default, ON, and OFF. Defaults come from the Spells tab.")
+
+    local scroll = CreateFrame("ScrollFrame", nil, section, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 8, -62)
+    scroll:SetPoint("BOTTOMRIGHT", -30, 10)
+
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(348, 1)
+    scroll:SetScrollChild(content)
+
+    local emptyLabel = content:CreateFontString(nil, "ARTWORK", "GameFontDisable")
+    emptyLabel:SetPoint("TOPLEFT", 10, -12)
+    emptyLabel:SetText("No active roster entries found.")
+    emptyLabel:Hide()
+
+    self.rosterScroll = scroll
+    self.rosterContent = content
+    self.rosterEmptyLabel = emptyLabel
+    self.rosterPage = page
 end
 
 function addon.config:CreateWindow()
@@ -749,6 +1079,7 @@ function addon.config:CreateWindow()
         if addon.combat and addon.combat.Reset then
             addon.combat:Reset()
         end
+        addon.config:RefreshControls()
         addon:Refresh()
     end)
     StyleFlatButton(self.refreshRosterButton, false)
@@ -771,6 +1102,10 @@ function addon.config:CreateWindow()
         addon.config:ShowTab("SPELLS")
     end)
 
+    self.rosterTab = CreateTabButton(f, "Roster", 90, 24, 302, -52, function()
+        addon.config:ShowTab("ROSTER")
+    end)
+
     local content = CreateFrame("Frame", nil, f)
     content:SetPoint("TOPLEFT", 18, -84)
     content:SetPoint("BOTTOMRIGHT", -18, 16)
@@ -778,6 +1113,7 @@ function addon.config:CreateWindow()
     self:CreateGeneralPage(content)
     self:CreateTextPage(content)
     self:CreateSpellsPage(content)
+    self:CreateRosterPage(content)
 
     self.window = f
 

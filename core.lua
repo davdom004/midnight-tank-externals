@@ -43,6 +43,10 @@ addon.defaults = {
             },
         },
     },
+    cooldownModifiers = {
+        defaults = {},
+        roster = {},
+    },
 }
 
 local function CopyDefaults(src, dst)
