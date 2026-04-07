@@ -72,6 +72,56 @@ local function AbbreviateSpecName(name)
     return string.sub(name, 1, 8)
 end
 
+local function BuildDefaultModifierEntries()
+    local entries = {}
+
+    if not (addon.talents and addon.talents.GetSpellCooldownModifierOptions) then
+        return entries
+    end
+
+    for _, spellEntry in ipairs(addon:GetSpellList()) do
+        for _, option in ipairs(addon.talents:GetSpellCooldownModifierOptions(spellEntry.spellID)) do
+            entries[#entries + 1] = option
+        end
+    end
+
+    table.sort(entries, function(a, b)
+        if (a.spellName or "") ~= (b.spellName or "") then
+            return (a.spellName or "") < (b.spellName or "")
+        end
+
+        if (a.specName or "") ~= (b.specName or "") then
+            return (a.specName or "") < (b.specName or "")
+        end
+
+        return (a.spellID or 0) < (b.spellID or 0)
+    end)
+
+    return entries
+end
+
+local function Clamp(value, minValue, maxValue)
+    if value < minValue then
+        return minValue
+    end
+
+    if value > maxValue then
+        return maxValue
+    end
+
+    return value
+end
+
+local function SetFrameBounds(frame, x, y, width, height)
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", x, y)
+    frame:SetSize(width, height)
+end
+
+local function GetClampedWindowSize(width, height)
+    return Clamp(width, 420, 900), Clamp(height, 410, 900)
+end
+
 local function ApplyPanelBackdrop(frame, alpha)
     frame:SetBackdrop({
         bgFile = "Interface/Tooltips/UI-Tooltip-Background",
@@ -379,30 +429,28 @@ function addon.config:RefreshOwnerNameVisibility()
 end
 
 function addon.config:RefreshSpellControls()
-    if not self.spellRows then
-        return
-    end
+    if self.spellRows then
+        for spellID, row in pairs(self.spellRows) do
+            row.enabled:SetChecked(addon:IsSpellEnabled(spellID))
 
-    for spellID, row in pairs(self.spellRows) do
-        row.enabled:SetChecked(addon:IsSpellEnabled(spellID))
+            if row.specChecks then
+                local spellFilters = addon:GetConfig("spellFilters") or {}
+                local spellSpecFilter = spellFilters.specFilter and spellFilters.specFilter[spellID]
 
-        if row.specChecks then
-            local spellFilters = addon:GetConfig("spellFilters") or {}
-            local spellSpecFilter = spellFilters.specFilter and spellFilters.specFilter[spellID]
-
-            for specID, specCheck in pairs(row.specChecks) do
-                local checked = true
-                if spellSpecFilter and spellSpecFilter[specID] ~= nil then
-                    checked = spellSpecFilter[specID]
+                for specID, specCheck in pairs(row.specChecks) do
+                    local checked = true
+                    if spellSpecFilter and spellSpecFilter[specID] ~= nil then
+                        checked = spellSpecFilter[specID]
+                    end
+                    specCheck:SetChecked(checked == true)
                 end
-                specCheck:SetChecked(checked == true)
             end
         end
+    end
 
-        if row.modifierButtons and addon.talents and addon.talents.GetDefaultModifierEnabled then
-            for _, button in ipairs(row.modifierButtons) do
-                button:SetState(addon.talents:GetDefaultModifierEnabled(spellID, button.specID))
-            end
+    if self.defaultModifierChecks and addon.talents and addon.talents.GetDefaultModifierEnabled then
+        for _, check in ipairs(self.defaultModifierChecks) do
+            check:SetChecked(addon.talents:GetDefaultModifierEnabled(check.spellID, check.specID))
         end
     end
 end
@@ -411,6 +459,8 @@ function addon.config:RefreshControls()
     if not self.window then
         return
     end
+
+    self:ApplyResponsiveLayout()
 
     self.testModeButton:SetState(addon:GetConfig("testMode"))
     self.lockedButton:SetState(addon:GetConfig("locked"))
@@ -437,6 +487,105 @@ function addon.config:RefreshControls()
     self:RefreshOwnerNameVisibility()
     self:RefreshSpellControls()
     self:RefreshRosterOverrides()
+end
+
+function addon.config:SaveWindowSize()
+    if not self.window then
+        return
+    end
+
+    local width, height = GetClampedWindowSize(self.window:GetWidth(), self.window:GetHeight())
+
+    addon:SetConfig("configWindow", {
+        width = math.floor(width + 0.5),
+        height = math.floor(height + 0.5),
+    })
+end
+
+function addon.config:ApplyResponsiveLayout()
+    if not (self.window and self.content) then
+        return
+    end
+
+    local windowWidth = self.window:GetWidth()
+    local windowHeight = self.window:GetHeight()
+    local contentWidth = math.max(windowWidth - 36, 384)
+    local contentHeight = math.max(windowHeight - 100, 310)
+
+    local tabGap = 10
+    local tabLeft = 14
+    local availableTabWidth = windowWidth - (tabLeft * 2) - (tabGap * 3)
+    local tabWidth = math.floor(availableTabWidth / 4)
+
+    self.generalTab:SetWidth(tabWidth)
+    self.textTab:SetWidth(tabWidth)
+    self.spellsTab:SetWidth(tabWidth)
+    self.rosterTab:SetWidth(tabWidth)
+
+    self.generalTab:ClearAllPoints()
+    self.generalTab:SetPoint("TOPLEFT", self.window, "TOPLEFT", tabLeft, -52)
+
+    self.textTab:ClearAllPoints()
+    self.textTab:SetPoint("LEFT", self.generalTab, "RIGHT", tabGap, 0)
+
+    self.spellsTab:ClearAllPoints()
+    self.spellsTab:SetPoint("LEFT", self.textTab, "RIGHT", tabGap, 0)
+
+    self.rosterTab:ClearAllPoints()
+    self.rosterTab:SetPoint("LEFT", self.spellsTab, "RIGHT", tabGap, 0)
+
+    self.content:ClearAllPoints()
+    self.content:SetPoint("TOPLEFT", self.window, "TOPLEFT", 18, -84)
+    self.content:SetPoint("BOTTOMRIGHT", self.window, "BOTTOMRIGHT", -18, 16)
+
+    if self.generalPage then
+        SetFrameBounds(self.generalStateSection, 0, 0, contentWidth, 72)
+        SetFrameBounds(self.generalLayoutSection, 0, -84, contentWidth, 74)
+        SetFrameBounds(self.generalSizingSection, 0, -170, contentWidth, math.max(contentHeight - 170, 142))
+        self.iconSizeSlider:SetWidth(math.max(contentWidth - 164, 220))
+        self.spacingSlider:SetWidth(math.max(contentWidth - 164, 220))
+    end
+
+    if self.textPage then
+        SetFrameBounds(self.visibilitySection, 0, 0, contentWidth, 72)
+        SetFrameBounds(self.positionSection, 0, -76, contentWidth, 92)
+        SetFrameBounds(self.contentSection, 0, -180, contentWidth, 64)
+        SetFrameBounds(self.typographySection, 0, -256, contentWidth, math.max(contentHeight - 256, 64))
+
+        self.nameYLabel:ClearAllPoints()
+        self.nameYLabel:SetPoint("TOPLEFT", self.positionSection, "TOPLEFT", math.max(contentWidth - 184, 200), -70)
+
+        self.nameYBox:ClearAllPoints()
+        self.nameYBox:SetPoint("TOPLEFT", self.positionSection, "TOPLEFT", math.max(contentWidth - 92, 292), -64)
+    end
+
+    if self.spellsPage then
+        local defaultCount = #(self.defaultModifierChecks or {})
+        local defaultsHeight = Clamp((defaultCount * 24) + 48, 110, math.max(contentHeight - 140, 110))
+        local trackedHeight = math.max(contentHeight - defaultsHeight - 12, 120)
+
+        SetFrameBounds(self.spellsTrackedSection, 0, 0, contentWidth, trackedHeight)
+        SetFrameBounds(self.spellsDefaultsSection, 0, -(trackedHeight + 12), contentWidth, defaultsHeight)
+
+        local trackedContentWidth = math.max(contentWidth - 42, 320)
+        local defaultsContentWidth = math.max(contentWidth - 42, 320)
+        self.spellsTrackedContent:SetWidth(trackedContentWidth)
+        self.spellsDefaultsContent:SetWidth(defaultsContentWidth)
+
+        for _, row in pairs(self.spellRows or {}) do
+            row:SetWidth(trackedContentWidth - 12)
+        end
+
+        for _, check in ipairs(self.defaultModifierChecks or {}) do
+            local row = check:GetParent()
+            row:SetWidth(defaultsContentWidth - 12)
+        end
+    end
+
+    if self.rosterPage then
+        SetFrameBounds(self.rosterSection, 0, 0, contentWidth, contentHeight)
+        self.rosterContent:SetWidth(math.max(contentWidth - 42, 320))
+    end
 end
 
 function addon.config:RefreshRosterOverrides()
@@ -483,8 +632,10 @@ function addon.config:RefreshRosterOverrides()
             self.rosterRows[index] = row
         end
 
+        local rowWidth = math.max((self.rosterContent:GetWidth() or 348) - 8, 320)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 0, offsetY)
+        row:SetWidth(rowWidth)
         row:Show()
 
         local specName = entry.specID and GetSpecializationInfoByID and select(2, GetSpecializationInfoByID(entry.specID))
@@ -522,15 +673,17 @@ function addon.config:RefreshRosterOverrides()
         end
 
         if not isPlayer then
+            local buttonWidth = Clamp(math.floor((rowWidth - 44) / math.max(#options, 1)), 92, 132)
+            local buttonGap = 8
             for optionIndex, option in ipairs(options) do
                 local button = row.buttons[optionIndex]
                 if not button then
                     button = CreateCycleStateButton(
                         row,
                         "",
-                        104,
+                        buttonWidth,
                         22,
-                        10 + ((optionIndex - 1) * 112),
+                        10 + ((optionIndex - 1) * (buttonWidth + buttonGap)),
                         -32,
                         nil,
                         function(selfButton, state)
@@ -550,6 +703,9 @@ function addon.config:RefreshRosterOverrides()
                 button.guid = entry.guid
                 button.spellID = option.spellID
                 button.specID = option.specID
+                button:ClearAllPoints()
+                button:SetPoint("TOPLEFT", row, "TOPLEFT", 10 + ((optionIndex - 1) * (buttonWidth + buttonGap)), -32)
+                button:SetWidth(buttonWidth)
                 button:SetLabel(string.format("%s %ds", AbbreviateSpellName(option.spellName), option.amount))
                 button:SetState(addon.talents:GetRosterModifierOverride(entry.guid, option.spellID, option.specID))
                 button:Show()
@@ -632,6 +788,7 @@ function addon.config:CreateGeneralPage(parent)
     page:SetAllPoints(parent)
 
     local stateSection = CreateSection(page, "State", 0, 0, 384, 72)
+    self.generalStateSection = stateSection
     self.testModeButton = CreateToggleButton(
         stateSection,
         "Test Mode",
@@ -664,6 +821,7 @@ function addon.config:CreateGeneralPage(parent)
     )
 
     local layoutSection = CreateSection(page, "Grow Direction", 0, -84, 384, 74)
+    self.generalLayoutSection = layoutSection
     local growLabel = layoutSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     growLabel:SetPoint("TOPLEFT", 12, -40)
     growLabel:SetText("Direction")
@@ -672,6 +830,7 @@ function addon.config:CreateGeneralPage(parent)
     self.growDropdown:SetPoint("TOPLEFT", growLabel, "TOPRIGHT", 20, 10)
 
     local sizingSection = CreateSection(page, "Sizing", 0, -170, 384, 142)
+    self.generalSizingSection = sizingSection
 
     local iconSizeLabel = sizingSection:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     iconSizeLabel:SetPoint("TOPLEFT", 12, -40)
@@ -858,16 +1017,39 @@ function addon.config:CreateSpellsPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     page:SetAllPoints(parent)
 
-    local section = CreateSection(page, "Tracked Spells", 0, 0, 384, 320)
+    local trackedSection = CreateSection(page, "Tracked Spells", 0, 0, 384, 198)
+    self.spellsTrackedSection = trackedSection
+    local trackedScroll = CreateFrame("ScrollFrame", nil, trackedSection, "UIPanelScrollFrameTemplate")
+    trackedScroll:SetPoint("TOPLEFT", 8, -34)
+    trackedScroll:SetPoint("BOTTOMRIGHT", -30, 8)
+
+    local trackedContent = CreateFrame("Frame", nil, trackedScroll)
+    trackedContent:SetSize(348, 1)
+    trackedScroll:SetScrollChild(trackedContent)
+    self.spellsTrackedScroll = trackedScroll
+    self.spellsTrackedContent = trackedContent
+
+    local defaultsSection = CreateSection(page, "Default Cooldown Reductions", 0, -210, 384, 110)
+    self.spellsDefaultsSection = defaultsSection
+    local defaultsScroll = CreateFrame("ScrollFrame", nil, defaultsSection, "UIPanelScrollFrameTemplate")
+    defaultsScroll:SetPoint("TOPLEFT", 8, -34)
+    defaultsScroll:SetPoint("BOTTOMRIGHT", -30, 8)
+
+    local defaultsContent = CreateFrame("Frame", nil, defaultsScroll)
+    defaultsContent:SetSize(348, 1)
+    defaultsScroll:SetScrollChild(defaultsContent)
+    self.spellsDefaultsScroll = defaultsScroll
+    self.spellsDefaultsContent = defaultsContent
 
     self.spellRows = {}
+    self.defaultModifierChecks = {}
 
-    local y = -42
+    local y = 0
     for _, entry in ipairs(addon:GetSpellList()) do
         local spellID = entry.spellID
         local info = entry.info
 
-        local row = CreateFrame("Frame", nil, section)
+        local row = CreateFrame("Frame", nil, trackedContent)
         row:SetPoint("TOPLEFT", 12, y)
         row:SetSize(350, 24)
 
@@ -917,7 +1099,6 @@ function addon.config:CreateSpellsPage(parent)
         end)
 
         row.specChecks = nil
-        row.modifierButtons = nil
         self.spellRows[spellID] = row
 
         if info.allowSpecFilter and info.specs then
@@ -934,7 +1115,7 @@ function addon.config:CreateSpellsPage(parent)
             for _, specID in ipairs(specIDs) do
                 local specName = info.specs[specID]
 
-                local specCheck = CreateFrame("CheckButton", nil, section, "UICheckButtonTemplate")
+                local specCheck = CreateFrame("CheckButton", nil, trackedContent, "UICheckButtonTemplate")
                 specCheck:SetPoint("TOPLEFT", specX, y)
                 specCheck:SetChecked(addon:IsSpellSpecAllowed(spellID, specID))
                 specCheck:SetScript("OnClick", function(btn)
@@ -959,43 +1140,42 @@ function addon.config:CreateSpellsPage(parent)
             end
         end
 
-        local modifierOptions = {}
-        if addon.talents and addon.talents.GetSpellCooldownModifierOptions then
-            modifierOptions = addon.talents:GetSpellCooldownModifierOptions(spellID)
-        end
-
-        if #modifierOptions > 0 then
-            y = y - 20
-            row.modifierButtons = {}
-
-            local modifierLabel = section:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-            modifierLabel:SetPoint("TOPLEFT", 30, y)
-            modifierLabel:SetText("Default CDR")
-            row.modifierLabel = modifierLabel
-
-            local buttonX = 112
-            for index, option in ipairs(modifierOptions) do
-                local button = CreateToggleButton(
-                    section,
-                    string.format("%s %ds", AbbreviateSpecName(option.specName), option.amount),
-                    84,
-                    20,
-                    buttonX + ((index - 1) * 84),
-                    y + 6,
-                    addon.talents:GetDefaultModifierEnabled(spellID, option.specID),
-                    function(value)
-                        addon.talents:SetDefaultModifierEnabled(spellID, option.specID, value)
-                        addon:Refresh()
-                        addon.config:RefreshControls()
-                    end
-                )
-                button.specID = option.specID
-                row.modifierButtons[index] = button
-            end
-        end
-
         y = y - 30
     end
+
+    trackedContent:SetHeight(math.max((-y) + 8, 1))
+
+    local defaultY = -10
+    for index, option in ipairs(BuildDefaultModifierEntries()) do
+        local row = CreateFrame("Frame", nil, defaultsContent)
+        row:SetPoint("TOPLEFT", 6, defaultY)
+        row:SetPoint("TOPRIGHT", -6, defaultY)
+        row:SetHeight(22)
+
+        row.label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        row.label:SetPoint("LEFT", 0, 0)
+        row.label:SetText(string.format("%s (%s %ds)", option.spellName, AbbreviateSpecName(option.specName), option.amount))
+
+        local check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+        check:SetPoint("RIGHT", 0, 0)
+        check.spellID = option.spellID
+        check.specID = option.specID
+        check:SetChecked(addon.talents:GetDefaultModifierEnabled(option.spellID, option.specID))
+        check:SetScript("OnClick", function(selfButton)
+            addon.talents:SetDefaultModifierEnabled(
+                selfButton.spellID,
+                selfButton.specID,
+                selfButton:GetChecked() and true or false
+            )
+            addon:Refresh()
+            addon.config:RefreshControls()
+        end)
+
+        self.defaultModifierChecks[index] = check
+        defaultY = defaultY - 24
+    end
+
+    defaultsContent:SetHeight(math.max((-defaultY) + 8, 1))
 
     self.spellsPage = page
 end
@@ -1005,6 +1185,7 @@ function addon.config:CreateRosterPage(parent)
     page:SetAllPoints(parent)
 
     local section = CreateSection(page, "Roster Overrides", 0, 0, 384, 320)
+    self.rosterSection = section
 
     local description = section:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     description:SetPoint("TOPLEFT", 12, -40)
@@ -1033,11 +1214,17 @@ end
 
 function addon.config:CreateWindow()
     local f = CreateFrame("Frame", "TankExternalsConfigWindow", UIParent, "BackdropTemplate")
-    f:SetSize(420, 410)
+    local sizeConfig = addon:GetConfig("configWindow") or {}
+    local initialWidth, initialHeight = GetClampedWindowSize(sizeConfig.width or 520, sizeConfig.height or 640)
+    f:SetSize(initialWidth, initialHeight)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     f:SetFrameStrata("DIALOG")
     f:SetClampedToScreen(true)
     f:Hide()
+    f:SetResizable(true)
+    if f.SetResizeBounds then
+        f:SetResizeBounds(420, 410, 900, 900)
+    end
 
     ApplyPanelBackdrop(f, 0.97)
 
@@ -1109,6 +1296,61 @@ function addon.config:CreateWindow()
     local content = CreateFrame("Frame", nil, f)
     content:SetPoint("TOPLEFT", 18, -84)
     content:SetPoint("BOTTOMRIGHT", -18, 16)
+    self.content = content
+
+    local resizeButton = CreateFrame("Button", nil, f, "BackdropTemplate")
+    resizeButton:SetSize(12, 12)
+    resizeButton:SetPoint("BOTTOMRIGHT", -4, 4)
+    resizeButton:EnableMouse(true)
+    resizeButton:SetBackdrop({
+        bgFile = "Interface/Buttons/WHITE8X8",
+        edgeFile = "Interface/Buttons/WHITE8X8",
+        tile = false,
+        edgeSize = 1,
+        insets = { left = 1, right = 1, top = 1, bottom = 1 },
+    })
+    resizeButton:SetBackdropColor(0.10, 0.10, 0.13, 0.95)
+    resizeButton:SetBackdropBorderColor(0.20, 0.20, 0.24, 1)
+
+    local gripLine1 = resizeButton:CreateTexture(nil, "ARTWORK")
+    gripLine1:SetColorTexture(0.75, 0.75, 0.80, 0.75)
+    gripLine1:SetSize(6, 1)
+    gripLine1:SetPoint("BOTTOMRIGHT", -2, 3)
+    -- gripLine1:SetRotation(0.75)
+
+    local gripLine2 = resizeButton:CreateTexture(nil, "ARTWORK")
+    gripLine2:SetColorTexture(0.75, 0.75, 0.80, 0.55)
+    gripLine2:SetSize(6, 1)
+    gripLine2:SetPoint("BOTTOMRIGHT", 0, 6)
+    gripLine2:SetRotation(-1.2)
+
+    resizeButton:SetScript("OnEnter", function(self)
+        self:SetBackdropColor(0.14, 0.14, 0.18, 1)
+    end)
+    resizeButton:SetScript("OnLeave", function(self)
+        self:SetBackdropColor(0.10, 0.10, 0.13, 0.95)
+    end)
+    resizeButton:SetScript("OnMouseDown", function()
+        f:StartSizing("BOTTOMRIGHT")
+    end)
+    resizeButton:SetScript("OnMouseUp", function()
+        f:StopMovingOrSizing()
+        addon.config:SaveWindowSize()
+    end)
+    self.resizeButton = resizeButton
+
+    f:SetScript("OnSizeChanged", function(_, width, height)
+        if width and height then
+            local clampedWidth, clampedHeight = GetClampedWindowSize(width, height)
+            if width ~= clampedWidth or height ~= clampedHeight then
+                f:SetSize(clampedWidth, clampedHeight)
+                return
+            end
+
+            addon.config:ApplyResponsiveLayout()
+            addon.config:SaveWindowSize()
+        end
+    end)
 
     self:CreateGeneralPage(content)
     self:CreateTextPage(content)
@@ -1119,6 +1361,7 @@ function addon.config:CreateWindow()
 
     self:InitGrowDropdown()
     self:InitAnchorDropdown()
+    self:ApplyResponsiveLayout()
     self:ShowTab("GENERAL")
     self:RefreshControls()
 end
