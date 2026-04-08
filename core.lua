@@ -43,6 +43,14 @@ addon.defaults = {
             },
         },
     },
+    cooldownModifiers = {
+        defaults = {},
+        roster = {},
+    },
+    configWindow = {
+        width = 520,
+        height = 640,
+    },
 }
 
 local function CopyDefaults(src, dst)

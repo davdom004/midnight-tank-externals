@@ -14,6 +14,16 @@ local needUpdate = true
 
 local tooltipSpecMap = nil
 
+local function RefreshRosterConfigIfVisible()
+    if not (addon.config and addon.config.window and addon.config.window:IsShown()) then
+        return
+    end
+
+    if addon.config.RefreshRosterOverrides then
+        addon.config:RefreshRosterOverrides()
+    end
+end
+
 local function Now()
     return GetTimePreciseSec and GetTimePreciseSec() or GetTime()
 end
@@ -199,6 +209,8 @@ function addon.roster:Scan()
             priorityQueue[guid] = nil
         end
     end
+
+    RefreshRosterConfigIfVisible()
 end
 
 local function ProcessInspectQueue()
@@ -257,6 +269,7 @@ local function HandleInspectReady(unit)
 
     addon.roster:Scan()
     addon:Refresh()
+    RefreshRosterConfigIfVisible()
 end
 
 function addon.roster:Init()
@@ -289,6 +302,7 @@ function addon.roster:Init()
         needUpdate = true
         addon.roster:Scan()
         addon:Refresh()
+        RefreshRosterConfigIfVisible()
     end)
 
     C_Timer.NewTicker(0.2, function()
