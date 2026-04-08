@@ -251,6 +251,15 @@ function addon.combatRules:GetCooldownForSpellId(spellID)
     return rule and rule.Cooldown or nil
 end
 
+function addon.combatRules:GetChargesForSpellId(spellID)
+    local rule = self:GetRuleBySpellId(spellID)
+    if not rule or not rule.Charges or rule.Charges < 1 then
+        return 1
+    end
+
+    return rule.Charges
+end
+
 function addon.combatRules:IsExternalSpellId(spellID)
     local rule = self:GetRuleBySpellId(spellID)
     return rule and rule.ExternalDefensive == true or false

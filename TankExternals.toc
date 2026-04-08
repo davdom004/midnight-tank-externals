@@ -2,7 +2,7 @@
 ## Title: TankExternals
 ## Notes: Tank external tracker using healer spec slots.
 ## Author: David
-## Version: 0.4.0
+## Version: 0.4.1
 ## SavedVariables: TankExternalsDB
 
 core.lua
