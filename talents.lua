@@ -7,17 +7,20 @@ local T = addon.talents
 -- Minimal talent adapter for TankExternals.
 -- This intentionally focuses only on currently tracked externals.
 --
--- Relevant CDRs taken from the reference talent file:
--- Ironbark -20s, Time Dilation -10s, Life Cocoon -45s,
--- Blessing of Sacrifice -15s (Holy) / -60s (Prot/Ret).
--- Guardian Spirit's post-buff behavior is omitted for now.
+-- Relevant talent-driven overrides for tracked externals.
+-- We currently model flat cooldown reductions and extra charges.
+-- Dynamic cooldown reduction effects like Protector of the Frail's PW:S
+-- interaction are intentionally not modeled yet.
 
-local TalentDrivenSpecCooldownModifiers = {
+local TalentDrivenSpecModifiers = {
+    [256] = { -- Discipline Priest
+        [373035] = { { SpellId = 33206, ExtraCharges = 1 } }, -- Protector of the Frail
+    },
     [105] = { -- Restoration Druid
         [382552] = { { SpellId = 102342, Amount = -20 } }, -- Ironbark
     },
     [1468] = { -- Preservation Evoker
-        [376204] = { { SpellId = 357170, Amount = -10 } }, -- Time Dilation
+        [376204] = { { SpellId = 357170, Amount = -10, ExtraCharges = 1 } }, -- Just in Time
     },
     [270] = { -- Mistweaver Monk
         [202424] = { { SpellId = 116849, Amount = -45 } }, -- Life Cocoon
@@ -32,6 +35,8 @@ local TalentDrivenSpecCooldownModifiers = {
         [384820] = { { SpellId = 6940, Amount = -60 } }, -- Blessing of Sacrifice
     },
 }
+
+local ConfigOnlySpecModifiers = {}
 
 local playerTalentRanks = {}
 local ConfigurableSpellCooldownModifiers = {}
@@ -81,6 +86,16 @@ local function GetModifierAmount(specID, spellID)
     return entry and entry.amount or 0
 end
 
+local function GetModifierExtraCharges(specID, spellID)
+    if not modifierMapsBuilt then
+        BuildConfigurableModifierMaps()
+    end
+
+    local modifiers = ConfigurableSpecCooldownModifiers[specID]
+    local entry = modifiers and modifiers[spellID]
+    return entry and entry.extraCharges or 0
+end
+
 local function ApplyModifier(baseCooldown, amount)
     return math.max((baseCooldown or 0) + (amount or 0), 0)
 end
@@ -89,28 +104,41 @@ BuildConfigurableModifierMaps = function()
     ConfigurableSpellCooldownModifiers = {}
     ConfigurableSpecCooldownModifiers = {}
 
-    for specID, talents in pairs(TalentDrivenSpecCooldownModifiers) do
+    local function RegisterModifier(specID, mod)
+        local spellID = mod.SpellId
+        local spellInfo = addon.spells and addon.spells[spellID]
+        local specName = spellInfo and spellInfo.specs and spellInfo.specs[specID]
+
+        if spellID and specName then
+            local entry = {
+                spellID = spellID,
+                spellName = spellInfo.name,
+                specID = specID,
+                specName = specName,
+                amount = mod.Amount or 0,
+                extraCharges = mod.ExtraCharges or 0,
+            }
+
+            ConfigurableSpellCooldownModifiers[spellID] = ConfigurableSpellCooldownModifiers[spellID] or {}
+            table.insert(ConfigurableSpellCooldownModifiers[spellID], entry)
+
+            ConfigurableSpecCooldownModifiers[specID] = ConfigurableSpecCooldownModifiers[specID] or {}
+            ConfigurableSpecCooldownModifiers[specID][spellID] = entry
+        end
+    end
+
+    for specID, talents in pairs(TalentDrivenSpecModifiers) do
         for _, mods in pairs(talents) do
             for _, mod in ipairs(mods) do
-                local spellID = mod.SpellId
-                local spellInfo = addon.spells and addon.spells[spellID]
-                local specName = spellInfo and spellInfo.specs and spellInfo.specs[specID]
+                RegisterModifier(specID, mod)
+            end
+        end
+    end
 
-                if spellID and specName then
-                    local entry = {
-                        spellID = spellID,
-                        spellName = spellInfo.name,
-                        specID = specID,
-                        specName = specName,
-                        amount = mod.Amount,
-                    }
-
-                    ConfigurableSpellCooldownModifiers[spellID] = ConfigurableSpellCooldownModifiers[spellID] or {}
-                    table.insert(ConfigurableSpellCooldownModifiers[spellID], entry)
-
-                    ConfigurableSpecCooldownModifiers[specID] = ConfigurableSpecCooldownModifiers[specID] or {}
-                    ConfigurableSpecCooldownModifiers[specID][spellID] = entry
-                end
+    for specID, mods in pairs(ConfigOnlySpecModifiers) do
+        for _, mod in ipairs(mods) do
+            if not (ConfigurableSpecCooldownModifiers[specID] and ConfigurableSpecCooldownModifiers[specID][mod.SpellId]) then
+                RegisterModifier(specID, mod)
             end
         end
     end
@@ -163,13 +191,14 @@ local function RefreshLocalPlayerTalents()
 end
 
 local function GetPlayerModifierAmount(specID, abilityID)
-    local mods = TalentDrivenSpecCooldownModifiers[specID]
+    local mods = TalentDrivenSpecModifiers[specID]
     if not mods then
-        return 0, 0
+        return 0, 0, 0
     end
 
     local addAmount = 0
     local multAmount = 0
+    local extraCharges = 0
 
     for talentSpellID, talentMods in pairs(mods) do
         local rank = playerTalentRanks[talentSpellID]
@@ -179,14 +208,15 @@ local function GetPlayerModifierAmount(specID, abilityID)
                     if mod.Mult then
                         multAmount = multAmount + mod.Amount
                     else
-                        addAmount = addAmount + mod.Amount
+                        addAmount = addAmount + (mod.Amount or 0)
                     end
+                    extraCharges = extraCharges + (mod.ExtraCharges or 0)
                 end
             end
         end
     end
 
-    return addAmount, multAmount
+    return addAmount, multAmount, extraCharges
 end
 
 function T:GetUnitSpecId(unit)
@@ -319,6 +349,30 @@ function T:GetUnitCooldown(unit, specID, classToken, abilityID, baseCooldown, me
     end
 
     return baseCooldown
+end
+
+function T:GetUnitMaxCharges(unit, specID, classToken, abilityID, baseCharges)
+    baseCharges = math.max(baseCharges or 1, 1)
+
+    if not abilityID or not specID then
+        return baseCharges
+    end
+
+    if UnitIsUnit(unit, "player") then
+        local _, _, extraCharges = GetPlayerModifierAmount(specID, abilityID)
+        return math.max(baseCharges + extraCharges, 1)
+    end
+
+    local guid = unit and UnitGUID(unit)
+    if not guid or issecretvalue(guid) then
+        return baseCharges
+    end
+
+    if self:GetEffectiveModifierEnabled(guid, abilityID, specID) then
+        return math.max(baseCharges + GetModifierExtraCharges(specID, abilityID), 1)
+    end
+
+    return baseCharges
 end
 
 function T:GetUnitBuffDuration(unit, specID, classToken, abilityID, baseDuration)

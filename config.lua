@@ -100,6 +100,24 @@ local function BuildDefaultModifierEntries()
     return entries
 end
 
+local function BuildModifierSummary(option, shortMode)
+    local parts = {}
+
+    if option.extraCharges and option.extraCharges > 0 then
+        parts[#parts + 1] = string.format("+%dc", option.extraCharges)
+    end
+
+    if option.amount and option.amount ~= 0 then
+        parts[#parts + 1] = string.format("%+ds", option.amount)
+    end
+
+    if #parts == 0 then
+        return shortMode and "Talent" or "Talent override"
+    end
+
+    return table.concat(parts, ", ")
+end
+
 local function Clamp(value, minValue, maxValue)
     if value < minValue then
         return minValue
@@ -706,7 +724,7 @@ function addon.config:RefreshRosterOverrides()
                 button:ClearAllPoints()
                 button:SetPoint("TOPLEFT", row, "TOPLEFT", 10 + ((optionIndex - 1) * (buttonWidth + buttonGap)), -32)
                 button:SetWidth(buttonWidth)
-                button:SetLabel(string.format("%s %ds", AbbreviateSpellName(option.spellName), option.amount))
+                button:SetLabel(string.format("%s %s", AbbreviateSpellName(option.spellName), BuildModifierSummary(option, true)))
                 button:SetState(addon.talents:GetRosterModifierOverride(entry.guid, option.spellID, option.specID))
                 button:Show()
             end
@@ -1154,7 +1172,7 @@ function addon.config:CreateSpellsPage(parent)
 
         row.label = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
         row.label:SetPoint("LEFT", 0, 0)
-        row.label:SetText(string.format("%s (%s %ds)", option.spellName, AbbreviateSpecName(option.specName), option.amount))
+        row.label:SetText(string.format("%s (%s, %s)", option.spellName, AbbreviateSpecName(option.specName), BuildModifierSummary(option)))
 
         local check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
         check:SetPoint("RIGHT", 0, 0)

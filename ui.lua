@@ -37,6 +37,23 @@ local function ApplyBorder(frame, bgR, bgG, bgB, bgA, brR, brG, brB, brA)
     frame:SetBackdropBorderColor(brR, brG, brB, brA)
 end
 
+local function GetDisplayChargeReadyTimes(spellID, readyAt)
+    local maxCharges = 1
+    if addon.combatRules and addon.combatRules.GetChargesForSpellId then
+        maxCharges = addon.combatRules:GetChargesForSpellId(spellID)
+    end
+
+    if maxCharges <= 1 then
+        return { readyAt or 0 }
+    end
+
+    local results = { readyAt or 0 }
+    for _ = 2, maxCharges do
+        results[#results + 1] = 0
+    end
+    return results
+end
+
 function addon.ui:SavePosition()
     if not self.anchorFrame then
         return
@@ -262,12 +279,14 @@ function addon.ui:BuildDisplayData()
 
         for _, entry in ipairs(addon.state.testData) do
             if addon:IsSpellEnabled(entry.spellID) then
-                data[#data + 1] = {
-                    owner = entry.owner,
-                    class = entry.class,
-                    spellID = entry.spellID,
-                    readyAt = entry.readyAt,
-                }
+                for _, chargeReadyAt in ipairs(GetDisplayChargeReadyTimes(entry.spellID, entry.readyAt)) do
+                    data[#data + 1] = {
+                        owner = entry.owner,
+                        class = entry.class,
+                        spellID = entry.spellID,
+                        readyAt = chargeReadyAt,
+                    }
+                end
             end
         end
 
@@ -278,12 +297,19 @@ function addon.ui:BuildDisplayData()
 
     for _, entry in pairs(addon.state.roster or {}) do
         for _, spellID in ipairs(entry.externals or {}) do
-            data[#data + 1] = {
-                owner = entry.name or "?",
-                class = entry.class,
-                spellID = spellID,
-                readyAt = (addon.combat and addon.combat.GetReadyAt and addon.combat:GetReadyAt(entry.guid, spellID)) or 0,
-            }
+            local readyTimes = { 0 }
+            if addon.combat and addon.combat.GetChargeReadyTimes then
+                readyTimes = addon.combat:GetChargeReadyTimes(entry.guid, spellID)
+            end
+
+            for _, readyAt in ipairs(readyTimes) do
+                data[#data + 1] = {
+                    owner = entry.name or "?",
+                    class = entry.class,
+                    spellID = spellID,
+                    readyAt = readyAt,
+                }
+            end
         end
     end
 

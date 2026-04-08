@@ -6,6 +6,7 @@ local activeAurasByTargetGuid = {}
 local lastCastByGuid = {}
 
 local castWindow = 0.25
+local chargeCommitWindow = 0.25
 
 local function Now()
     return GetTime()
@@ -19,6 +20,68 @@ end
 local function EnsureAuraTable(targetGUID)
     activeAurasByTargetGuid[targetGUID] = activeAurasByTargetGuid[targetGUID] or {}
     return activeAurasByTargetGuid[targetGUID]
+end
+
+local function GetSpellBaseCharges(spellID)
+    if addon.combatRules and addon.combatRules.GetChargesForSpellId then
+        return addon.combatRules:GetChargesForSpellId(spellID)
+    end
+
+    return 1
+end
+
+local function GetUnitMaxChargesForSpell(entry, spellID)
+    local baseCharges = GetSpellBaseCharges(spellID)
+    if not entry or not entry.unit then
+        return baseCharges
+    end
+
+    if addon.talents and addon.talents.GetUnitMaxCharges then
+        local _, classToken = UnitClass(entry.unit)
+        return addon.talents:GetUnitMaxCharges(entry.unit, entry.specID, classToken, spellID, baseCharges)
+    end
+
+    return baseCharges
+end
+
+local function EnsureChargeList(casterGUID, spellID)
+    local cooldowns = EnsureCooldownTable()
+    cooldowns[casterGUID] = cooldowns[casterGUID] or {}
+
+    local charges = cooldowns[casterGUID][spellID]
+    if type(charges) ~= "table" then
+        if type(charges) == "number" and charges > Now() then
+            charges = { charges }
+        else
+            charges = {}
+        end
+        cooldowns[casterGUID][spellID] = charges
+    end
+
+    return charges
+end
+
+local function NormalizeChargeList(charges, maxCharges)
+    if type(charges) ~= "table" then
+        return {}
+    end
+
+    local now = Now()
+    local normalized = {}
+
+    for _, readyAt in ipairs(charges) do
+        if type(readyAt) == "number" and readyAt > now then
+            normalized[#normalized + 1] = readyAt
+        end
+    end
+
+    table.sort(normalized)
+
+    while #normalized > maxCharges do
+        table.remove(normalized, #normalized)
+    end
+
+    return normalized
 end
 
 local function GetRosterEntryByGuid(guid)
@@ -82,15 +145,25 @@ local function CommitCooldown(casterGUID, spellID, startTime)
         )
     end
 
-    local cooldowns = EnsureCooldownTable()
-    cooldowns[casterGUID] = cooldowns[casterGUID] or {}
-
     local newReadyAt = startTime + cooldown
-    local existingReadyAt = cooldowns[casterGUID][spellID] or 0
+    local maxCharges = GetUnitMaxChargesForSpell(entry, spellID)
+    local charges = EnsureChargeList(casterGUID, spellID)
+    charges = NormalizeChargeList(charges, maxCharges)
+    EnsureCooldownTable()[casterGUID][spellID] = charges
 
-    if newReadyAt > existingReadyAt then
-        cooldowns[casterGUID][spellID] = newReadyAt
+    for _, existingReadyAt in ipairs(charges) do
+        if math.abs(existingReadyAt - newReadyAt) <= chargeCommitWindow then
+            return
+        end
     end
+
+    if #charges >= maxCharges then
+        return
+    end
+
+    charges[#charges + 1] = newReadyAt
+    table.sort(charges)
+    EnsureCooldownTable()[casterGUID][spellID] = charges
 end
 
 local function IsExternalAuraInstance(unit, auraInstanceID)
@@ -388,16 +461,45 @@ local function HandleCast(watch, spellID)
 end
 
 function addon.combat:GetReadyAt(guid, spellID)
+    local readyTimes = self:GetChargeReadyTimes(guid, spellID)
+    if #readyTimes == 0 then
+        return 0
+    end
+
+    return readyTimes[1] or 0
+end
+
+function addon.combat:GetChargeReadyTimes(guid, spellID)
+    if not guid or not spellID or issecretvalue(guid) or issecretvalue(spellID) then
+        return { 0 }
+    end
+
+    local entry = GetRosterEntryByGuid(guid)
+    local maxCharges = GetUnitMaxChargesForSpell(entry, spellID)
     local cooldowns = addon.state.cooldowns
-    if not cooldowns or not guid or not spellID or issecretvalue(guid) or issecretvalue(spellID) then
-        return 0
+    local charges = cooldowns and cooldowns[guid] and cooldowns[guid][spellID]
+    charges = NormalizeChargeList(charges, maxCharges)
+
+    if cooldowns and cooldowns[guid] then
+        cooldowns[guid][spellID] = charges
     end
 
-    if not cooldowns[guid] then
-        return 0
+    local results = {}
+    local availableCharges = maxCharges - #charges
+
+    for _ = 1, availableCharges do
+        results[#results + 1] = 0
     end
 
-    return cooldowns[guid][spellID] or 0
+    for _, readyAt in ipairs(charges) do
+        results[#results + 1] = readyAt
+    end
+
+    if #results == 0 then
+        results[1] = 0
+    end
+
+    return results
 end
 
 function addon.combat:Reset()
