@@ -615,7 +615,14 @@ function addon.config:RefreshRosterOverrides()
 
     local entries = {}
     for _, entry in pairs(addon.state.roster or {}) do
-        entries[#entries + 1] = entry
+        local options = {}
+        if addon.talents and addon.talents.GetSpecCooldownModifierOptions then
+            options = addon.talents:GetSpecCooldownModifierOptions(entry.specID)
+        end
+
+        if entry.externals and #entry.externals > 0 and #options > 0 then
+            entries[#entries + 1] = entry
+        end
     end
 
     table.sort(entries, function(a, b)
@@ -684,7 +691,7 @@ function addon.config:RefreshRosterOverrides()
             row.emptyText:SetText("Uses your live talent data.")
             row.emptyText:Show()
         elseif #options == 0 then
-            row.emptyText:SetText("No configurable cooldown reductions for this spec yet.")
+            row.emptyText:SetText("No configurable external overrides for this spec.")
             row.emptyText:Show()
         else
             row.emptyText:Hide()
@@ -741,6 +748,7 @@ function addon.config:RefreshRosterOverrides()
     self.rosterContent:SetHeight(contentHeight)
 
     if self.rosterEmptyLabel then
+        self.rosterEmptyLabel:SetText("No active roster entries with configurable externals.")
         self.rosterEmptyLabel:SetShown(#entries == 0)
     end
 end
