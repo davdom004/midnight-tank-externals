@@ -145,11 +145,13 @@ local function CommitCooldown(casterGUID, spellID, startTime)
         )
     end
 
-    local newReadyAt = startTime + cooldown
     local maxCharges = GetUnitMaxChargesForSpell(entry, spellID)
     local charges = EnsureChargeList(casterGUID, spellID)
     charges = NormalizeChargeList(charges, maxCharges)
     EnsureCooldownTable()[casterGUID][spellID] = charges
+
+    local queueTailReadyAt = charges[#charges] or startTime
+    local newReadyAt = math.max(startTime, queueTailReadyAt) + cooldown
 
     for _, existingReadyAt in ipairs(charges) do
         if math.abs(existingReadyAt - newReadyAt) <= chargeCommitWindow then
@@ -265,6 +267,23 @@ local function PredictRuleFromSnapshot(auraStartTime, castSnapshot)
     return bestGuid, bestRule
 end
 
+local function ShouldCommitPredictedAuraCharge(predictedGuid, predictedRule, castSnapshot)
+    if not predictedGuid or not predictedRule or not predictedRule.SpellId then
+        return false
+    end
+
+    local castInfo = castSnapshot and castSnapshot[predictedGuid]
+    if not castInfo then
+        return true
+    end
+
+    if castInfo.spellID and castInfo.spellID == predictedRule.SpellId then
+        return false
+    end
+
+    return true
+end
+
 local function TrackAura(watch, aura)
     if not watch or not watch.guid or not aura or not aura.auraInstanceID or issecretvalue(aura.auraInstanceID) then
         return
@@ -302,7 +321,7 @@ local function TrackAura(watch, aura)
         castSnapshot = castSnapshot,
     }
 
-    if predictedGuid and predictedRule and predictedRule.SpellId then
+    if ShouldCommitPredictedAuraCharge(predictedGuid, predictedRule, castSnapshot) then
         CommitCooldown(predictedGuid, predictedRule.SpellId, startTime)
     end
 end
