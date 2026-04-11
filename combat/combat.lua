@@ -480,17 +480,17 @@ local function HandleCast(watch, spellID)
 end
 
 function addon.combat:GetReadyAt(guid, spellID)
-    local readyTimes = self:GetChargeReadyTimes(guid, spellID)
-    if #readyTimes == 0 then
+    local currentCharges, _, nextReadyAt = self:GetChargeState(guid, spellID)
+    if currentCharges > 0 then
         return 0
     end
 
-    return readyTimes[1] or 0
+    return nextReadyAt or 0
 end
 
-function addon.combat:GetChargeReadyTimes(guid, spellID)
+function addon.combat:GetChargeState(guid, spellID)
     if not guid or not spellID or issecretvalue(guid) or issecretvalue(spellID) then
-        return { 0 }
+        return 1, 1, 0
     end
 
     local entry = GetRosterEntryByGuid(guid)
@@ -503,15 +503,30 @@ function addon.combat:GetChargeReadyTimes(guid, spellID)
         cooldowns[guid][spellID] = charges
     end
 
-    local results = {}
-    local availableCharges = maxCharges - #charges
+    local currentCharges = math.max(maxCharges - #charges, 0)
+    local nextReadyAt = charges[1] or 0
 
-    for _ = 1, availableCharges do
+    return currentCharges, maxCharges, nextReadyAt
+end
+
+function addon.combat:GetChargeReadyTimes(guid, spellID)
+    local currentCharges, maxCharges, nextReadyAt = self:GetChargeState(guid, spellID)
+    local results = {}
+
+    for _ = 1, currentCharges do
         results[#results + 1] = 0
     end
 
-    for _, readyAt in ipairs(charges) do
-        results[#results + 1] = readyAt
+    if currentCharges < maxCharges then
+        local cooldowns = addon.state.cooldowns
+        local charges = cooldowns and cooldowns[guid] and cooldowns[guid][spellID]
+        charges = NormalizeChargeList(charges, maxCharges)
+
+        for _, readyAt in ipairs(charges) do
+            results[#results + 1] = readyAt
+        end
+    elseif nextReadyAt and nextReadyAt > 0 then
+        results[#results + 1] = nextReadyAt
     end
 
     if #results == 0 then

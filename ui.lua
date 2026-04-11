@@ -54,6 +54,33 @@ local function GetDisplayChargeReadyTimes(spellID, readyAt)
     return results
 end
 
+local function GetDisplayChargeState(spellID, readyAt)
+    local readyTimes = GetDisplayChargeReadyTimes(spellID, readyAt)
+    local maxCharges = #readyTimes
+    local currentCharges = 0
+
+    for _, chargeReadyAt in ipairs(readyTimes) do
+        if chargeReadyAt <= 0 then
+            currentCharges = currentCharges + 1
+        end
+    end
+
+    local nextReadyAt = 0
+    for _, chargeReadyAt in ipairs(readyTimes) do
+        if chargeReadyAt > 0 then
+            nextReadyAt = chargeReadyAt
+            break
+        end
+    end
+
+    if maxCharges == 0 then
+        maxCharges = 1
+        currentCharges = 1
+    end
+
+    return currentCharges, maxCharges, nextReadyAt
+end
+
 function addon.ui:SavePosition()
     if not self.anchorFrame then
         return
@@ -164,6 +191,11 @@ function addon.ui:CreateIcon(index)
     icon.nameText = icon.foreground:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     icon.nameText:SetMaxLines(1)
     icon.nameText:SetWordWrap(false)
+
+    icon.chargeText = icon.foreground:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    icon.chargeText:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -2, 2)
+    icon.chargeText:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+    icon.chargeText:SetTextColor(0.98, 0.93, 0.60, 1)
 
     self.icons[index] = icon
     return icon
@@ -279,14 +311,16 @@ function addon.ui:BuildDisplayData()
 
         for _, entry in ipairs(addon.state.testData) do
             if addon:IsSpellEnabled(entry.spellID) then
-                for _, chargeReadyAt in ipairs(GetDisplayChargeReadyTimes(entry.spellID, entry.readyAt)) do
-                    data[#data + 1] = {
-                        owner = entry.owner,
-                        class = entry.class,
-                        spellID = entry.spellID,
-                        readyAt = chargeReadyAt,
-                    }
-                end
+                local currentCharges, maxCharges, nextReadyAt = GetDisplayChargeState(entry.spellID, entry.readyAt)
+                data[#data + 1] = {
+                    owner = entry.owner,
+                    class = entry.class,
+                    spellID = entry.spellID,
+                    readyAt = currentCharges > 0 and 0 or nextReadyAt,
+                    currentCharges = currentCharges,
+                    maxCharges = maxCharges,
+                    nextReadyAt = nextReadyAt,
+                }
             end
         end
 
@@ -297,19 +331,20 @@ function addon.ui:BuildDisplayData()
 
     for _, entry in pairs(addon.state.roster or {}) do
         for _, spellID in ipairs(entry.externals or {}) do
-            local readyTimes = { 0 }
-            if addon.combat and addon.combat.GetChargeReadyTimes then
-                readyTimes = addon.combat:GetChargeReadyTimes(entry.guid, spellID)
+            local currentCharges, maxCharges, nextReadyAt = 1, 1, 0
+            if addon.combat and addon.combat.GetChargeState then
+                currentCharges, maxCharges, nextReadyAt = addon.combat:GetChargeState(entry.guid, spellID)
             end
 
-            for _, readyAt in ipairs(readyTimes) do
-                data[#data + 1] = {
-                    owner = entry.name or "?",
-                    class = entry.class,
-                    spellID = spellID,
-                    readyAt = readyAt,
-                }
-            end
+            data[#data + 1] = {
+                owner = entry.name or "?",
+                class = entry.class,
+                spellID = spellID,
+                readyAt = currentCharges > 0 and 0 or nextReadyAt,
+                currentCharges = currentCharges,
+                maxCharges = maxCharges,
+                nextReadyAt = nextReadyAt,
+            }
         end
     end
 
@@ -360,7 +395,10 @@ function addon.ui:Update()
         local spellInfo = addon.spells[entry.spellID]
         local texture = C_Spell.GetSpellTexture(entry.spellID)
         local duration = spellInfo and spellInfo.cooldown or 0
-        local remaining = entry.readyAt - now
+        local currentCharges = entry.currentCharges or 1
+        local maxCharges = entry.maxCharges or 1
+        local nextReadyAt = entry.nextReadyAt or 0
+        local remaining = nextReadyAt - now
 
         icon.texture:SetTexture(texture)
 
@@ -382,22 +420,36 @@ function addon.ui:Update()
             icon.nameText:Hide()
         end
 
-        if remaining <= 0 then
+        if maxCharges > 1 then
+            icon.chargeText:SetText(tostring(currentCharges))
+            icon.chargeText:Show()
+        else
+            icon.chargeText:SetText("")
+            icon.chargeText:Hide()
+        end
+
+        if currentCharges >= maxCharges then
             icon.cd:Hide()
             icon.texture:SetDesaturated(false)
             icon.shade:SetColorTexture(0, 0, 0, 0)
             icon:SetAlpha(1)
         else
             if duration > 0 then
-                icon.cd:SetCooldown(entry.readyAt - duration, duration)
+                icon.cd:SetCooldown(nextReadyAt - duration, duration)
                 icon.cd:Show()
             else
                 icon.cd:Hide()
             end
 
-            icon.texture:SetDesaturated(true)
-            icon.shade:SetColorTexture(0, 0, 0, 0.20)
-            icon:SetAlpha(0.82)
+            if currentCharges > 0 then
+                icon.texture:SetDesaturated(false)
+                icon.shade:SetColorTexture(0, 0, 0, 0)
+                icon:SetAlpha(1)
+            else
+                icon.texture:SetDesaturated(true)
+                icon.shade:SetColorTexture(0, 0, 0, 0.20)
+                icon:SetAlpha(0.82)
+            end
         end
     end
 end
