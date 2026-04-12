@@ -8,6 +8,7 @@ local watched = {}
 local auraCallbacks = {}
 local castCallbacks = {}
 local rosterCallbacks = {}
+local wipeCallbacks = {}
 local pendingRefresh = false
 
 local function GetDesiredUnits()
@@ -43,6 +44,12 @@ end
 local function FireRosterChanged()
     for _, fn in ipairs(rosterCallbacks) do
         fn()
+    end
+end
+
+local function FireWipe(encounterID, encounterName, difficultyID, groupSize)
+    for _, fn in ipairs(wipeCallbacks) do
+        fn(encounterID, encounterName, difficultyID, groupSize)
     end
 end
 
@@ -137,6 +144,10 @@ function O:RegisterRosterChangedCallback(fn)
     rosterCallbacks[#rosterCallbacks + 1] = fn
 end
 
+function O:RegisterWipeCallback(fn)
+    wipeCallbacks[#wipeCallbacks + 1] = fn
+end
+
 function O:Init()
     if self.eventsFrame then
         return
@@ -148,8 +159,17 @@ function O:Init()
     frame:RegisterEvent("GROUP_ROSTER_UPDATE")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    frame:RegisterEvent("ENCOUNTER_END")
 
-    frame:SetScript("OnEvent", function(_, event)
+    frame:SetScript("OnEvent", function(_, event, ...)
+        if event == "ENCOUNTER_END" then
+            local encounterID, encounterName, difficultyID, groupSize, success = ...
+            if success == 0 then
+                FireWipe(encounterID, encounterName, difficultyID, groupSize)
+            end
+            return
+        end
+
         if event == "PLAYER_REGEN_ENABLED" then
             if pendingRefresh then
                 O:RefreshWatches()

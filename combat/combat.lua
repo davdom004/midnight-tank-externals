@@ -563,4 +563,8 @@ function addon.combat:Init()
         RebuildAllAuras()
         addon:Refresh()
     end)
+
+    addon.combatObserver:RegisterWipeCallback(function()
+        addon.combat:Reset()
+    end)
 end
