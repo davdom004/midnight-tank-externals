@@ -39,10 +39,19 @@ local TalentDrivenSpecModifiers = {
 local ConfigOnlySpecModifiers = {}
 
 local playerTalentRanks = {}
+local inspectedTalentRanks = {}
+local inspectedTalentUpdatedAt = {}
 local ConfigurableSpellCooldownModifiers = {}
 local ConfigurableSpecCooldownModifiers = {}
 local modifierMapsBuilt = false
 local BuildConfigurableModifierMaps
+local inspectableHealerSpecs = {
+    [65] = true,
+    [105] = true,
+    [256] = true,
+    [270] = true,
+    [1468] = true,
+}
 
 local function SortEntries(entries)
     table.sort(entries, function(a, b)
@@ -56,6 +65,18 @@ local function SortEntries(entries)
 
         return (a.spellID or 0) < (b.spellID or 0)
     end)
+end
+
+local function Now()
+    return GetTimePreciseSec and GetTimePreciseSec() or GetTime()
+end
+
+local function GetInspectConfigID()
+    if Constants and Constants.TraitConsts and Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID then
+        return Constants.TraitConsts.INSPECT_TRAIT_CONFIG_ID
+    end
+
+    return -1
 end
 
 local function EnsureCooldownModifierConfig()
@@ -150,15 +171,10 @@ BuildConfigurableModifierMaps = function()
     modifierMapsBuilt = true
 end
 
-local function GetPlayerActiveTalentRanks()
+local function GetTalentRanksForConfig(configID)
     local ranks = {}
 
-    if not (C_ClassTalents and C_Traits) then
-        return ranks
-    end
-
-    local configID = C_ClassTalents.GetActiveConfigID and C_ClassTalents.GetActiveConfigID()
-    if not configID then
+    if not (configID and C_Traits and C_Traits.GetConfigInfo and C_Traits.GetTreeNodes and C_Traits.GetNodeInfo and C_Traits.GetEntryInfo and C_Traits.GetDefinitionInfo) then
         return ranks
     end
 
@@ -186,25 +202,49 @@ local function GetPlayerActiveTalentRanks()
     return ranks
 end
 
+local function GetTalentInspectRefreshInterval()
+    local config = addon:GetConfig("talentInspect") or {}
+    local value = tonumber(config.refreshInterval) or 20
+    value = math.floor(value + 0.5)
+
+    if value < 5 then
+        value = 5
+    elseif value > 300 then
+        value = 300
+    end
+
+    return value
+end
+
+local function GetPlayerActiveTalentRanks()
+    if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID) then
+        return {}
+    end
+
+    return GetTalentRanksForConfig(C_ClassTalents.GetActiveConfigID())
+end
+
 local function RefreshLocalPlayerTalents()
     playerTalentRanks = GetPlayerActiveTalentRanks()
 end
 
-local function GetPlayerModifierAmount(specID, abilityID)
+local function GetModifierValuesFromRanks(specID, abilityID, talentRanks)
     local mods = TalentDrivenSpecModifiers[specID]
     if not mods then
-        return 0, 0, 0
+        return 0, 0, 0, false
     end
 
     local addAmount = 0
     local multAmount = 0
     local extraCharges = 0
+    local hasRelevantModifier = false
 
     for talentSpellID, talentMods in pairs(mods) do
-        local rank = playerTalentRanks[talentSpellID]
-        if rank and rank > 0 then
-            for _, mod in ipairs(talentMods) do
-                if mod.SpellId == abilityID then
+        local rank = talentRanks and talentRanks[talentSpellID]
+        for _, mod in ipairs(talentMods) do
+            if mod.SpellId == abilityID then
+                hasRelevantModifier = true
+                if rank and rank > 0 then
                     if mod.Mult then
                         multAmount = multAmount + mod.Amount
                     else
@@ -216,7 +256,40 @@ local function GetPlayerModifierAmount(specID, abilityID)
         end
     end
 
-    return addAmount, multAmount, extraCharges
+    return addAmount, multAmount, extraCharges, hasRelevantModifier
+end
+
+local function GetPlayerModifierAmount(specID, abilityID)
+    return GetModifierValuesFromRanks(specID, abilityID, playerTalentRanks)
+end
+
+local function ModifierStateFromRanks(specID, spellID, talentRanks)
+    local addAmount, multAmount, extraCharges, hasRelevantModifier = GetModifierValuesFromRanks(specID, spellID, talentRanks)
+    if not hasRelevantModifier then
+        return nil, false
+    end
+
+    return (addAmount ~= 0 or multAmount ~= 0 or extraCharges ~= 0), true
+end
+
+local function CanInspectUnitTalents(unit, guid, specID)
+    if not unit or not guid or UnitIsUnit(unit, "player") then
+        return false
+    end
+
+    if not specID or not inspectableHealerSpecs[specID] then
+        return false
+    end
+
+    if not (C_Traits and C_Traits.GetConfigInfo and C_Traits.GetTreeNodes and C_Traits.GetNodeInfo and C_Traits.GetEntryInfo and C_Traits.GetDefinitionInfo) then
+        return false
+    end
+
+    if not TalentDrivenSpecModifiers[specID] then
+        return false
+    end
+
+    return true
 end
 
 function T:GetUnitSpecId(unit)
@@ -228,10 +301,91 @@ end
 
 function T:UnitHasTalent(unit, talentSpellID, specID)
     if not UnitIsUnit(unit, "player") then
+        local guid = unit and UnitGUID(unit)
+        local ranks = guid and inspectedTalentRanks[guid]
+        if ranks then
+            return (ranks[talentSpellID] or 0) > 0
+        end
         return false
     end
 
     return (playerTalentRanks[talentSpellID] or 0) > 0
+end
+
+function T:ShouldInspectUnitTalents(unit, guid, specID)
+    return CanInspectUnitTalents(unit, guid, specID) and inspectedTalentRanks[guid] == nil
+end
+
+function T:CaptureInspectTalentData(unit, guid, specID)
+    if not CanInspectUnitTalents(unit, guid, specID) then
+        return false
+    end
+
+    if C_Traits.HasValidInspectData and not C_Traits.HasValidInspectData() then
+        return false
+    end
+
+    local ranks = GetTalentRanksForConfig(GetInspectConfigID())
+    if not ranks or next(ranks) == nil then
+        return false
+    end
+
+    inspectedTalentRanks[guid] = ranks
+    inspectedTalentUpdatedAt[guid] = Now()
+    return true
+end
+
+function T:ClearInspectTalentData(guid)
+    if not guid then
+        return
+    end
+
+    inspectedTalentRanks[guid] = nil
+    inspectedTalentUpdatedAt[guid] = nil
+end
+
+function T:ShouldRefreshUnitTalents(unit, guid, specID, force)
+    if not CanInspectUnitTalents(unit, guid, specID) then
+        return false
+    end
+
+    if force == true then
+        return true
+    end
+
+    local updatedAt = inspectedTalentUpdatedAt[guid]
+    if not updatedAt then
+        return true
+    end
+
+    return (Now() - updatedAt) >= GetTalentInspectRefreshInterval()
+end
+
+function T:GetModifierDisplayState(unit, guid, spellID, specID)
+    if not spellID or not specID then
+        return nil, "UNKNOWN", false
+    end
+
+    if unit and UnitExists(unit) and UnitIsUnit(unit, "player") then
+        local enabled, hasRelevantModifier = ModifierStateFromRanks(specID, spellID, playerTalentRanks)
+        if hasRelevantModifier then
+            return enabled, "LIVE", true
+        end
+    end
+
+    local inspectedRanks = guid and inspectedTalentRanks[guid]
+    if inspectedRanks then
+        local enabled, hasRelevantModifier = ModifierStateFromRanks(specID, spellID, inspectedRanks)
+        if hasRelevantModifier then
+            return enabled, "INSPECT", true
+        end
+    end
+
+    if self:ShouldInspectUnitTalents(unit, guid, specID) then
+        return nil, "PENDING", false
+    end
+
+    return nil, "UNKNOWN", false
 end
 
 function T:GetSpellCooldownModifierOptions(spellID)
@@ -320,6 +474,15 @@ function T:SetRosterModifierOverride(guid, spellID, specID, state)
 end
 
 function T:GetEffectiveModifierEnabled(guid, spellID, specID)
+    local inspectedRanks = guid and inspectedTalentRanks[guid]
+    if inspectedRanks then
+        local _, _, _, hasRelevantModifier = GetModifierValuesFromRanks(specID, spellID, inspectedRanks)
+        if hasRelevantModifier then
+            local addAmount, multAmount, extraCharges = GetModifierValuesFromRanks(specID, spellID, inspectedRanks)
+            return addAmount ~= 0 or multAmount ~= 0 or extraCharges ~= 0
+        end
+    end
+
     local override = self:GetRosterModifierOverride(guid, spellID, specID)
     if override ~= nil then
         return override
@@ -344,6 +507,15 @@ function T:GetUnitCooldown(unit, specID, classToken, abilityID, baseCooldown, me
         return baseCooldown
     end
 
+    local inspectedRanks = inspectedTalentRanks[guid]
+    if inspectedRanks then
+        local addAmount, multAmount, _, hasRelevantModifier = GetModifierValuesFromRanks(specID, abilityID, inspectedRanks)
+        if hasRelevantModifier then
+            local cooldown = baseCooldown + addAmount + (baseCooldown * multAmount / 100)
+            return math.max(cooldown, 0)
+        end
+    end
+
     if self:GetEffectiveModifierEnabled(guid, abilityID, specID) then
         return ApplyModifier(baseCooldown, GetModifierAmount(specID, abilityID))
     end
@@ -366,6 +538,14 @@ function T:GetUnitMaxCharges(unit, specID, classToken, abilityID, baseCharges)
     local guid = unit and UnitGUID(unit)
     if not guid or issecretvalue(guid) then
         return baseCharges
+    end
+
+    local inspectedRanks = inspectedTalentRanks[guid]
+    if inspectedRanks then
+        local _, _, extraCharges, hasRelevantModifier = GetModifierValuesFromRanks(specID, abilityID, inspectedRanks)
+        if hasRelevantModifier then
+            return math.max(baseCharges + extraCharges, 1)
+        end
     end
 
     if self:GetEffectiveModifierEnabled(guid, abilityID, specID) then

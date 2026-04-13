@@ -47,6 +47,9 @@ addon.defaults = {
         defaults = {},
         roster = {},
     },
+    talentInspect = {
+        refreshInterval = 30,
+    },
     configWindow = {
         width = 520,
         height = 640,

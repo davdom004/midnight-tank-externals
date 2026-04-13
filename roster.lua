@@ -110,6 +110,14 @@ local function QueueInspect(unit)
     end
 end
 
+local function ShouldInspectTalents(unit, guid, specID)
+    if not addon.talents or not addon.talents.ShouldInspectUnitTalents then
+        return false
+    end
+
+    return addon.talents:ShouldInspectUnitTalents(unit, guid, specID)
+end
+
 function addon.roster:GetUnitSpecID(unit)
     if not unit or not UnitExists(unit) then
         return nil
@@ -198,6 +206,10 @@ function addon.roster:Scan()
 
                 addon.state.roster[guid] = entry
                 seen[guid] = true
+
+                if ShouldInspectTalents(unit, guid, entry.specID) then
+                    QueueInspect(unit)
+                end
             end
         end
     end
@@ -207,6 +219,9 @@ function addon.roster:Scan()
             addon.state.roster[guid] = nil
             specCache[guid] = nil
             priorityQueue[guid] = nil
+            if addon.talents and addon.talents.ClearInspectTalentData then
+                addon.talents:ClearInspectTalentData(guid)
+            end
         end
     end
 
@@ -250,18 +265,39 @@ local function ProcessInspectQueue()
     needUpdate = false
 end
 
-local function HandleInspectReady(unit)
-    if not currentInspectUnit or unit ~= currentInspectUnit then
-        return
+local function RefreshTalentInspectQueue()
+    if InCombatLockdown() then
+        return false
     end
 
-    local guid = UnitGUID(unit)
-    local specID = GetInspectSpecialization and GetInspectSpecialization(unit)
-
-    if guid and specID and specID > 0 then
-        specCache[guid] = specID
+    for _, entry in pairs(addon.state.roster or {}) do
+        if entry.unit and UnitExists(entry.unit) and addon.talents and addon.talents.ShouldRefreshUnitTalents then
+            if addon.talents:ShouldRefreshUnitTalents(entry.unit, entry.guid, entry.specID) then
+                QueueInspect(entry.unit)
+            end
+        end
     end
 
+    return true
+end
+
+function addon.roster:RefreshTalentInspects(force)
+    if InCombatLockdown() then
+        return false
+    end
+
+    for _, entry in pairs(addon.state.roster or {}) do
+        if entry.unit and UnitExists(entry.unit) and addon.talents and addon.talents.ShouldRefreshUnitTalents then
+            if addon.talents:ShouldRefreshUnitTalents(entry.unit, entry.guid, entry.specID, force == true) then
+                QueueInspect(entry.unit)
+            end
+        end
+    end
+
+    return true
+end
+
+local function FinalizeInspect()
     ClearInspectPlayer()
     requestedUnit = nil
     currentInspectUnit = nil
@@ -270,6 +306,41 @@ local function HandleInspectReady(unit)
     addon.roster:Scan()
     addon:Refresh()
     RefreshRosterConfigIfVisible()
+end
+
+local function HandleInspectReady(inspectGUID)
+    if not currentInspectUnit or not inspectGUID then
+        return
+    end
+
+    local unit = currentInspectUnit
+    local guid = UnitGUID(unit)
+    if not guid or guid ~= inspectGUID then
+        return
+    end
+
+    local specID = GetInspectSpecialization and GetInspectSpecialization(unit)
+
+    if guid and specID and specID > 0 then
+        specCache[guid] = specID
+    end
+
+    local shouldCaptureTalents = ShouldInspectTalents(unit, guid, specID)
+    if not shouldCaptureTalents and addon.talents and addon.talents.ShouldRefreshUnitTalents then
+        shouldCaptureTalents = addon.talents:ShouldRefreshUnitTalents(unit, guid, specID)
+    end
+
+    if shouldCaptureTalents and addon.talents and addon.talents.CaptureInspectTalentData then
+        C_Timer.After(0, function()
+            if currentInspectUnit == unit and UnitExists(unit) and UnitGUID(unit) == guid then
+                addon.talents:CaptureInspectTalentData(unit, guid, specID)
+            end
+            FinalizeInspect()
+        end)
+        return
+    end
+
+    FinalizeInspect()
 end
 
 function addon.roster:Init()
@@ -281,6 +352,7 @@ function addon.roster:Init()
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
     frame:RegisterEvent("INSPECT_READY")
     frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 
     frame:SetScript("OnEvent", function(_, event, ...)
         if event == "INSPECT_READY" then
@@ -294,9 +366,16 @@ function addon.roster:Init()
                 local guid = UnitGUID(unit)
                 if guid then
                     specCache[guid] = nil
+                    if addon.talents and addon.talents.ClearInspectTalentData then
+                        addon.talents:ClearInspectTalentData(guid)
+                    end
                     QueueInspect(unit)
                 end
             end
+        end
+
+        if event == "PLAYER_REGEN_ENABLED" then
+            addon.roster:RefreshTalentInspects()
         end
 
         needUpdate = true
@@ -307,6 +386,10 @@ function addon.roster:Init()
 
     C_Timer.NewTicker(0.2, function()
         ProcessInspectQueue()
+    end)
+
+    C_Timer.NewTicker(5, function()
+        RefreshTalentInspectQueue()
     end)
 
     needUpdate = true

@@ -383,6 +383,52 @@ local function CreateCycleStateButton(parent, label, width, height, x, y, initia
     return button
 end
 
+local function CreateStatusBadge(parent, width, height, x, y)
+    local badge = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    badge:SetSize(width, height)
+    badge:SetPoint("TOPLEFT", x, y)
+    ApplyPanelBackdrop(badge, 1)
+
+    badge.titleText = badge:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    badge.titleText:SetPoint("TOPLEFT", 10, -7)
+    badge.titleText:SetPoint("TOPRIGHT", -52, -7)
+    badge.titleText:SetJustifyH("LEFT")
+
+    badge.detailText = badge:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    badge.detailText:SetPoint("TOPLEFT", badge.titleText, "BOTTOMLEFT", 0, -2)
+    badge.detailText:SetPoint("TOPRIGHT", badge.titleText, "BOTTOMRIGHT", 0, -2)
+    badge.detailText:SetJustifyH("LEFT")
+    badge.detailText:SetTextColor(0.76, 0.76, 0.80, 1)
+
+    badge.stateText = badge:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    badge.stateText:SetPoint("RIGHT", -10, 0)
+
+    function badge:SetDisplay(title, summary, state, source)
+        self.titleText:SetText(title or "Talent")
+        self.detailText:SetText(summary or "")
+
+        if state == true then
+            self.stateText:SetText("ON")
+            self:SetBackdropColor(0.16, 0.24, 0.18, 1)
+            self:SetBackdropBorderColor(0.35, 0.52, 0.38, 1)
+        elseif state == false then
+            self.stateText:SetText("OFF")
+            self:SetBackdropColor(0.25, 0.14, 0.14, 1)
+            self:SetBackdropBorderColor(0.52, 0.28, 0.28, 1)
+        elseif source == "PENDING" then
+            self.stateText:SetText("...")
+            self:SetBackdropColor(0.24, 0.22, 0.12, 1)
+            self:SetBackdropBorderColor(0.50, 0.44, 0.22, 1)
+        else
+            self.stateText:SetText("?")
+            self:SetBackdropColor(0.12, 0.12, 0.14, 1)
+            self:SetBackdropBorderColor(0.22, 0.22, 0.26, 1)
+        end
+    end
+
+    return badge
+end
+
 local function CreateTabButton(parent, text, width, height, x, y, onClick)
     local button = CreateFrame("Button", nil, parent, "BackdropTemplate")
     button:SetSize(width, height)
@@ -471,6 +517,8 @@ function addon.config:RefreshSpellControls()
             check:SetChecked(addon.talents:GetDefaultModifierEnabled(check.spellID, check.specID))
         end
     end
+
+    self:RefreshDefaultModifierVisibility()
 end
 
 function addon.config:RefreshControls()
@@ -501,10 +549,34 @@ function addon.config:RefreshControls()
     self.nameYBox:SetText(tostring(nameText.y or 0))
     self.nameTruncateBox:SetText(tostring(nameText.truncate or 0))
     self.nameFontSizeBox:SetText(tostring(nameText.fontSize or 10))
+    if self.rosterRefreshIntervalBox then
+        local talentInspect = addon:GetConfig("talentInspect") or {}
+        self.rosterRefreshIntervalBox:SetText(tostring(talentInspect.refreshInterval or 20))
+    end
 
     self:RefreshOwnerNameVisibility()
     self:RefreshSpellControls()
     self:RefreshRosterOverrides()
+end
+
+function addon.config:RefreshDefaultModifierVisibility()
+    if not self.spellsDefaultsSection then
+        return
+    end
+
+    local expanded = self.defaultModifiersExpanded == true
+
+    if self.defaultModifiersToggle and self.defaultModifiersToggle.text then
+        self.defaultModifiersToggle.text:SetText(expanded and "Hide" or "Show")
+    end
+
+    if self.spellsDefaultsScroll then
+        self.spellsDefaultsScroll:SetShown(expanded)
+    end
+
+    if self.spellsDefaultsHint then
+        self.spellsDefaultsHint:SetShown(not expanded)
+    end
 end
 
 function addon.config:SaveWindowSize()
@@ -579,7 +651,10 @@ function addon.config:ApplyResponsiveLayout()
 
     if self.spellsPage then
         local defaultCount = #(self.defaultModifierChecks or {})
-        local defaultsHeight = Clamp((defaultCount * 24) + 48, 110, math.max(contentHeight - 140, 110))
+        local defaultsExpanded = self.defaultModifiersExpanded == true
+        local defaultsHeight = defaultsExpanded
+            and Clamp((defaultCount * 24) + 48, 110, math.max(contentHeight - 140, 110))
+            or 72
         local trackedHeight = math.max(contentHeight - defaultsHeight - 12, 120)
 
         SetFrameBounds(self.spellsTrackedSection, 0, 0, contentWidth, trackedHeight)
@@ -589,6 +664,17 @@ function addon.config:ApplyResponsiveLayout()
         local defaultsContentWidth = math.max(contentWidth - 42, 320)
         self.spellsTrackedContent:SetWidth(trackedContentWidth)
         self.spellsDefaultsContent:SetWidth(defaultsContentWidth)
+
+        if self.defaultModifiersToggle then
+            self.defaultModifiersToggle:ClearAllPoints()
+            self.defaultModifiersToggle:SetPoint("TOPRIGHT", self.spellsDefaultsSection, "TOPRIGHT", -10, -8)
+        end
+
+        if self.spellsDefaultsHint then
+            self.spellsDefaultsHint:ClearAllPoints()
+            self.spellsDefaultsHint:SetPoint("TOPLEFT", self.spellsDefaultsSection, "TOPLEFT", 12, -42)
+            self.spellsDefaultsHint:SetPoint("TOPRIGHT", self.spellsDefaultsSection, "TOPRIGHT", -82, -42)
+        end
 
         for _, row in pairs(self.spellRows or {}) do
             row:SetWidth(trackedContentWidth - 12)
@@ -603,6 +689,27 @@ function addon.config:ApplyResponsiveLayout()
     if self.rosterPage then
         SetFrameBounds(self.rosterSection, 0, 0, contentWidth, contentHeight)
         self.rosterContent:SetWidth(math.max(contentWidth - 42, 320))
+
+        if self.rosterRefreshButton then
+            self.rosterRefreshButton:ClearAllPoints()
+            self.rosterRefreshButton:SetPoint("TOPLEFT", self.rosterSection, "TOPLEFT", 12, -62)
+        end
+
+        if self.rosterRefreshIntervalLabel and self.rosterRefreshButton then
+            self.rosterRefreshIntervalLabel:ClearAllPoints()
+            self.rosterRefreshIntervalLabel:SetPoint("LEFT", self.rosterRefreshButton, "RIGHT", 14, 0)
+        end
+
+        if self.rosterRefreshIntervalBox then
+            self.rosterRefreshIntervalBox:ClearAllPoints()
+            self.rosterRefreshIntervalBox:SetPoint("TOPLEFT", self.rosterSection, "TOPLEFT", math.max(contentWidth - 92, 292), -58)
+        end
+
+        if self.rosterStatusLabel then
+            self.rosterStatusLabel:ClearAllPoints()
+            self.rosterStatusLabel:SetPoint("TOPLEFT", self.rosterSection, "TOPLEFT", 12, -88)
+            self.rosterStatusLabel:SetPoint("TOPRIGHT", self.rosterSection, "TOPRIGHT", -12, -88)
+        end
     end
 end
 
@@ -633,7 +740,7 @@ function addon.config:RefreshRosterOverrides()
         return (a.guid or "") < (b.guid or "")
     end)
 
-    local rowHeight = 58
+    local rowHeight = 82
     local offsetY = -4
 
     for index, entry in ipairs(entries) do
@@ -651,9 +758,9 @@ function addon.config:RefreshRosterOverrides()
             row.detailText:SetTextColor(0.72, 0.72, 0.76, 1)
 
             row.emptyText = row:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-            row.emptyText:SetPoint("TOPLEFT", 10, -40)
+            row.emptyText:SetPoint("TOPLEFT", 10, -68)
 
-            row.buttons = {}
+            row.badges = {}
             self.rosterRows[index] = row
         end
 
@@ -676,64 +783,53 @@ function addon.config:RefreshRosterOverrides()
             options = addon.talents:GetSpecCooldownModifierOptions(entry.specID)
         end
 
-        local isPlayer = entry.unit and UnitExists(entry.unit) and UnitIsUnit(entry.unit, "player")
-
-        for buttonIndex, button in ipairs(row.buttons) do
-            if buttonIndex > #options then
-                button:Hide()
+        for badgeIndex, badge in ipairs(row.badges) do
+            if badgeIndex > #options then
+                badge:Hide()
             end
         end
 
-        if isPlayer then
-            for _, button in ipairs(row.buttons) do
-                button:Hide()
-            end
-            row.emptyText:SetText("Uses your live talent data.")
-            row.emptyText:Show()
-        elseif #options == 0 then
-            row.emptyText:SetText("No configurable external overrides for this spec.")
+        if #options == 0 then
+            row.emptyText:SetText("No tracked cooldown modifiers for this spec.")
             row.emptyText:Show()
         else
-            row.emptyText:Hide()
-        end
-
-        if not isPlayer then
-            local buttonWidth = Clamp(math.floor((rowWidth - 44) / math.max(#options, 1)), 92, 132)
-            local buttonGap = 8
+            local badgeWidth = Clamp(math.floor((rowWidth - 44) / math.max(#options, 1)), 118, 190)
+            local badgeGap = 8
+            local unresolvedCount = 0
             for optionIndex, option in ipairs(options) do
-                local button = row.buttons[optionIndex]
-                if not button then
-                    button = CreateCycleStateButton(
+                local badge = row.badges[optionIndex]
+                if not badge then
+                    badge = CreateStatusBadge(
                         row,
-                        "",
-                        buttonWidth,
-                        22,
-                        10 + ((optionIndex - 1) * (buttonWidth + buttonGap)),
-                        -32,
-                        nil,
-                        function(selfButton, state)
-                            addon.talents:SetRosterModifierOverride(
-                                selfButton.guid,
-                                selfButton.spellID,
-                                selfButton.specID,
-                                state
-                            )
-                            addon:Refresh()
-                            addon.config:RefreshRosterOverrides()
-                        end
+                        badgeWidth,
+                        34,
+                        10 + ((optionIndex - 1) * (badgeWidth + badgeGap)),
+                        -34
                     )
-                    row.buttons[optionIndex] = button
+                    row.badges[optionIndex] = badge
                 end
 
-                button.guid = entry.guid
-                button.spellID = option.spellID
-                button.specID = option.specID
-                button:ClearAllPoints()
-                button:SetPoint("TOPLEFT", row, "TOPLEFT", 10 + ((optionIndex - 1) * (buttonWidth + buttonGap)), -32)
-                button:SetWidth(buttonWidth)
-                button:SetLabel(string.format("%s %s", AbbreviateSpellName(option.spellName), BuildModifierSummary(option, true)))
-                button:SetState(addon.talents:GetRosterModifierOverride(entry.guid, option.spellID, option.specID))
-                button:Show()
+                local state, source = nil, "UNKNOWN"
+                if addon.talents and addon.talents.GetModifierDisplayState then
+                    state, source = addon.talents:GetModifierDisplayState(entry.unit, entry.guid, option.spellID, option.specID)
+                end
+
+                if source == "PENDING" or source == "UNKNOWN" then
+                    unresolvedCount = unresolvedCount + 1
+                end
+
+                badge:ClearAllPoints()
+                badge:SetPoint("TOPLEFT", row, "TOPLEFT", 10 + ((optionIndex - 1) * (badgeWidth + badgeGap)), -34)
+                badge:SetWidth(badgeWidth)
+                badge:SetDisplay(option.spellName or "Talent", BuildModifierSummary(option), state, source)
+                badge:Show()
+            end
+
+            if unresolvedCount > 0 then
+                row.emptyText:SetText("Waiting for inspect data.")
+                row.emptyText:Show()
+            else
+                row.emptyText:Hide()
             end
         end
 
@@ -748,7 +844,7 @@ function addon.config:RefreshRosterOverrides()
     self.rosterContent:SetHeight(contentHeight)
 
     if self.rosterEmptyLabel then
-        self.rosterEmptyLabel:SetText("No active roster entries with configurable externals.")
+        self.rosterEmptyLabel:SetText("No healer roster entries with tracked modifier talents.")
         self.rosterEmptyLabel:SetShown(#entries == 0)
     end
 end
@@ -1057,6 +1153,16 @@ function addon.config:CreateSpellsPage(parent)
 
     local defaultsSection = CreateSection(page, "Default Cooldown Reductions", 0, -210, 384, 110)
     self.spellsDefaultsSection = defaultsSection
+    self.defaultModifiersExpanded = self.defaultModifiersExpanded == true
+    self.defaultModifiersToggle = CreateHeaderActionButton(defaultsSection, "Show", 64, 20, 0, 0, function()
+        addon.config.defaultModifiersExpanded = not addon.config.defaultModifiersExpanded
+        addon.config:RefreshDefaultModifierVisibility()
+        addon.config:ApplyResponsiveLayout()
+    end)
+    self.spellsDefaultsHint = defaultsSection:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    self.spellsDefaultsHint:SetJustifyH("LEFT")
+    self.spellsDefaultsHint:SetText("Hidden by default. Use Show to edit spec-based fallback assumptions.")
+
     local defaultsScroll = CreateFrame("ScrollFrame", nil, defaultsSection, "UIPanelScrollFrameTemplate")
     defaultsScroll:SetPoint("TOPLEFT", 8, -34)
     defaultsScroll:SetPoint("BOTTOMRIGHT", -30, 8)
@@ -1203,6 +1309,7 @@ function addon.config:CreateSpellsPage(parent)
 
     defaultsContent:SetHeight(math.max((-defaultY) + 8, 1))
 
+    self:RefreshDefaultModifierVisibility()
     self.spellsPage = page
 end
 
@@ -1210,17 +1317,62 @@ function addon.config:CreateRosterPage(parent)
     local page = CreateFrame("Frame", nil, parent)
     page:SetAllPoints(parent)
 
-    local section = CreateSection(page, "Roster Overrides", 0, 0, 384, 320)
+    local section = CreateSection(page, "Roster Talent Check", 0, 0, 384, 320)
     self.rosterSection = section
 
     local description = section:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     description:SetPoint("TOPLEFT", 12, -40)
     description:SetPoint("TOPRIGHT", -12, -40)
     description:SetJustifyH("LEFT")
-    description:SetText("Cycle each entry between Default, ON, and OFF. Defaults come from the Spells tab.")
+    description:SetText("Quickly check whether healer externals in your current group have their charge or cooldown talent modifiers active.")
+
+    local refreshButton = CreateHeaderActionButton(section, "Refresh Talents", 116, 20, 12, -62, function()
+        if addon.roster and addon.roster.RefreshTalentInspects then
+            local started = addon.roster:RefreshTalentInspects(true)
+            if addon.config.rosterStatusLabel then
+                if started then
+                    addon.config.rosterStatusLabel:SetText("Queued healer talent refresh.")
+                else
+                    addon.config.rosterStatusLabel:SetText("Talent refresh is only available out of combat.")
+                end
+            end
+        end
+    end)
+    self.rosterRefreshButton = refreshButton
+
+    local intervalLabel = section:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    intervalLabel:SetPoint("LEFT", refreshButton, "RIGHT", 14, 0)
+    intervalLabel:SetText("Auto Refresh (sec)")
+    self.rosterRefreshIntervalLabel = intervalLabel
+
+    self.rosterRefreshIntervalBox = CreateNumberEditBox(section, 48, 22, 270, -58, function(selfBox)
+        local currentConfig = addon:GetConfig("talentInspect") or {}
+        local currentValue = tonumber(currentConfig.refreshInterval) or 20
+        local value = tonumber(selfBox:GetText())
+        if not value then
+            selfBox:SetText(tostring(currentValue))
+            return
+        end
+
+        value = math.floor(value + 0.5)
+        if value < 5 then value = 5 end
+        if value > 300 then value = 300 end
+
+        addon:SetConfig("talentInspect", {
+            refreshInterval = value,
+        })
+        selfBox:SetText(tostring(value))
+    end)
+
+    local statusLabel = section:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    statusLabel:SetPoint("TOPLEFT", 12, -88)
+    statusLabel:SetPoint("TOPRIGHT", -12, -88)
+    statusLabel:SetJustifyH("LEFT")
+    statusLabel:SetText("Auto refresh and manual refresh only run out of combat.")
+    self.rosterStatusLabel = statusLabel
 
     local scroll = CreateFrame("ScrollFrame", nil, section, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 8, -62)
+    scroll:SetPoint("TOPLEFT", 8, -108)
     scroll:SetPoint("BOTTOMRIGHT", -30, 10)
 
     local content = CreateFrame("Frame", nil, scroll)
@@ -1229,7 +1381,7 @@ function addon.config:CreateRosterPage(parent)
 
     local emptyLabel = content:CreateFontString(nil, "ARTWORK", "GameFontDisable")
     emptyLabel:SetPoint("TOPLEFT", 10, -12)
-    emptyLabel:SetText("No active roster entries found.")
+    emptyLabel:SetText("No healer roster entries found.")
     emptyLabel:Hide()
 
     self.rosterScroll = scroll
