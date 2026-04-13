@@ -11,6 +11,18 @@ local rosterCallbacks = {}
 local wipeCallbacks = {}
 local pendingRefresh = false
 
+local function IsRaidGroup()
+    if IsInRaid() then
+        return true
+    end
+
+    if LE_PARTY_CATEGORY_INSTANCE and IsInRaid(LE_PARTY_CATEGORY_INSTANCE) then
+        return true
+    end
+
+    return false
+end
+
 local function GetDesiredUnits()
     local units = {}
 
@@ -164,7 +176,7 @@ function O:Init()
     frame:SetScript("OnEvent", function(_, event, ...)
         if event == "ENCOUNTER_END" then
             local encounterID, encounterName, difficultyID, groupSize, success = ...
-            if success == 0 then
+            if success == 0 and IsRaidGroup() then
                 FireWipe(encounterID, encounterName, difficultyID, groupSize)
             end
             return

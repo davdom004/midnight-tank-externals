@@ -1,8 +1,8 @@
 ## Interface: 120001
 ## Title: TankExternals
 ## Notes: Tank external tracker using healer spec slots.
-## Author: David
-## Version: 0.4.2
+## Author: Vibe coded by David
+## Version: 0.5.0
 ## SavedVariables: TankExternalsDB
 
 core.lua
