@@ -284,6 +284,31 @@ local function ShouldCommitPredictedAuraCharge(predictedGuid, predictedRule, cas
     return true
 end
 
+local function SnapshotHasMatchingCast(castSnapshot, casterGUID, spellID, startTime)
+    if not castSnapshot or not casterGUID or not spellID or not startTime then
+        return false
+    end
+
+    local castInfo = castSnapshot[casterGUID]
+    if not castInfo or not castInfo.time or math.abs(castInfo.time - startTime) > castWindow then
+        return false
+    end
+
+    return castInfo.spellID and castInfo.spellID == spellID or false
+end
+
+local function AuraAlreadyCommittedCooldown(auraData, casterGUID, spellID)
+    if not auraData or not casterGUID or not spellID then
+        return false
+    end
+
+    if auraData.cooldownCommitted then
+        return true
+    end
+
+    return SnapshotHasMatchingCast(auraData.castSnapshot, casterGUID, spellID, auraData.startTime)
+end
+
 local function TrackAura(watch, aura)
     if not watch or not watch.guid or not aura or not aura.auraInstanceID or issecretvalue(aura.auraInstanceID) then
         return
@@ -304,6 +329,7 @@ local function TrackAura(watch, aura)
             sourceGUID = existing.sourceGUID,
             predictedSpellID = existing.predictedSpellID,
             castSnapshot = existing.castSnapshot,
+            cooldownCommitted = existing.cooldownCommitted == true,
         }
         return
     end
@@ -311,6 +337,7 @@ local function TrackAura(watch, aura)
     local startTime = Now()
     local castSnapshot = SnapshotCastTimes()
     local predictedGuid, predictedRule = PredictRuleFromSnapshot(startTime, castSnapshot)
+    local committedOnTrack = ShouldCommitPredictedAuraCharge(predictedGuid, predictedRule, castSnapshot)
 
     auras[aura.auraInstanceID] = {
         auraInstanceID = aura.auraInstanceID,
@@ -319,9 +346,10 @@ local function TrackAura(watch, aura)
         sourceGUID = predictedGuid,
         predictedSpellID = predictedRule and predictedRule.SpellId or nil,
         castSnapshot = castSnapshot,
+        cooldownCommitted = committedOnTrack,
     }
 
-    if ShouldCommitPredictedAuraCharge(predictedGuid, predictedRule, castSnapshot) then
+    if committedOnTrack then
         CommitCooldown(predictedGuid, predictedRule.SpellId, startTime)
     end
 end
@@ -382,7 +410,7 @@ local function RemoveAura(watch, auraInstanceID)
     end
 
     local casterGUID, rule = FindBestRuleForRemoval(auraData)
-    if casterGUID and rule and rule.SpellId then
+    if casterGUID and rule and rule.SpellId and not AuraAlreadyCommittedCooldown(auraData, casterGUID, rule.SpellId) then
         CommitCooldown(casterGUID, rule.SpellId, auraData.startTime)
     end
 
