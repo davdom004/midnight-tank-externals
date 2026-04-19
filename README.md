@@ -42,4 +42,7 @@ From there you can:
 
 ## Known Issues
 
+- Cannot track Life Cocoon conduit CD reduction.
+- First Icon in test mode vibrates.
+
 ## TODO
