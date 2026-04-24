@@ -1,3 +1,9 @@
+
+---
+#
+# The Addon is bricked GGs
+---
+
 # TankExternals
 
 TankExternals is a World of Warcraft addon that tracks defensive externals available for your group and shows them as a compact icon bar. It is aimed at tanks and raid leaders who want a fast view of which externals are currently ready, recharging, or unavailable.
